@@ -1,0 +1,7 @@
+node_modules
+npm-debug.log
+dist
+.env
+ecoclima-os-7ca1b-firebase-adminsdk-fbsvc-*.json
+data_mock/*.json
+.git
