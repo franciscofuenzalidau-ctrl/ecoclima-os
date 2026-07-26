@@ -137,6 +137,35 @@ async function getAllOccupiedTimes(): Promise<string[]> {
   return occupiedTimes;
 }
 
+// Helper to notify Executive Pilar via WhatsApp Cloud API
+async function notifyExecutivePilar(clientPhone: string, leadData: any) {
+  try {
+    const pilarPhone = '56961897021';
+    const whatsappToken = process.env.WHATSAPP_TOKEN;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    if (!whatsappToken || !phoneId) {
+      console.log(`[SIMULACIÓN ALERTA PILAR] Alerta a ${pilarPhone} sobre cliente +${clientPhone}`);
+      return;
+    }
+
+    const messageText = `🚨 *Alerta de Bot ECOCLIMA OS* 🚨\n\nEl cliente +${clientPhone} requiere tu asistencia humana.\n\n*Datos Recolectados hasta el momento:*\n- Servicio: ${leadData.service_type === 'installation' ? 'Instalación/Venta' : leadData.service_type === 'maintenance' ? 'Mantenimiento' : 'No definido'}\n- BTU/Capacidad: ${leadData.calculated_btu || 'N/A'}\n- Área: ${leadData.area_m2 ? leadData.area_m2 + ' m2' : 'N/A'}\n- Dirección: ${leadData.address || 'N/A'}\n- Fecha solicitada: ${leadData.appointment_time || 'N/A'}\n- Notas del Chat: ${leadData.notes || 'N/A'}\n\n*Por favor, asiste a este cliente desde tu WhatsApp de empresa.*`;
+
+    const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
+    await axios.post(url, {
+      messaging_product: 'whatsapp',
+      to: pilarPhone,
+      type: 'text',
+      text: { body: messageText }
+    }, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` }
+    });
+    console.log(`[WHATSAPP REAL] Alerta de derivación enviada a Pilar (+${pilarPhone}) para el cliente ${clientPhone}`);
+  } catch (error: any) {
+    console.error(`Error al enviar alerta a Pilar:`, error.response?.data || error.message);
+  }
+}
+
 export class GeminiService {
   private ai: GoogleGenAI;
 
@@ -211,30 +240,40 @@ export class GeminiService {
 
     // Process normal message with Gemini
     const systemInstruction = `
-Eres el asistente virtual oficial de Furtz Clima (ECOCLIMA OS). Tu único objetivo es guiar al cliente de manera amable y profesional para agendar un servicio de MANTENIMIENTO PREVENTIVO de aire acondicionado, o derivarlo al área comercial de ventas si está interesado en comprar, cotizar o instalar equipos nuevos.
+Eres el asistente virtual oficial de Furtz Clima. Tu objetivo es atender amablemente a los clientes ofreciendo y guiando a través de nuestras dos opciones principales: MANTENIMIENTO PREVENTIVO o VENTA/INSTALACIÓN DE EQUIPOS NUEVOS.
+
+SALUDO INICIAL (MUY IMPORTANTE):
+- Cuando el cliente te escriba por primera vez, debes presentarte y preguntarle explícitamente qué servicio busca, ofreciéndole estas dos opciones: 1) Mantenimiento Preventivo o 2) Venta/Instalación de Aire Acondicionado.
+
+REGLAS ESTRUCTURALES Y DE COMUNICACIÓN (ESTRICTAS):
+1. PREGUNTAS DE A UNA: Debes hacer UNA SOLA PREGUNTA por cada mensaje. JAMÁS hagas dos o más preguntas juntas. Espera la respuesta del cliente antes de avanzar.
+2. ENLACE DE AYUDA (OBLIGATORIO): Al final de TODO mensaje que envíes, debes incluir SIEMPRE y de forma OBLIGATORIA esta frase exacta: "Si es que no quieres mantención o venta de aire acondicionado, contáctate con nuestra ejecutiva Pilar acá: https://wa.me/56961897021"
+3. SOLICITUD HUMANA: Si el cliente rechaza el proceso del bot, se frustra, o pide explícitamente hablar con un humano o asesor, debes responder EXACTA Y ÚNICAMENTE: "Comprendo. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo. Un momento, por favor." (El sistema detectará esta frase para enviar la alerta).
 
 REGLAS DE NEGOCIO Y AGENDA:
 
-1. ENFOQUE EXCLUSIVO EN MANTENIMIENTOS:
-   - Solo debes recopilar datos y agendar visitas cuando el cliente solicite MANTENCIONES o mantenimientos preventivos de aire acondicionado.
-   - Para agendar la visita de mantenimiento, debes obtener de manera amable y natural la siguiente información obligatoria del cliente:
-     * Capacidad o potencia del equipo (ofrece opciones claras para que elija: a# 9.000 BTU, b# 12.000 BTU, c# 18.000 BTU, d# 24.000 BTU o más).
-     * Antigüedad del equipo (tiempo transcurrido desde su instalación, ej: "2 años").
-     * Hace cuánto tiempo se le hizo el último mantenimiento (ej: "nunca", "hace 6 meses", "hace 1 año").
-     * Si el equipo funciona correctamente o presenta alguna falla actualmente (ej: ruido, no enfría, gotea).
+1. PARA MANTENIMIENTOS:
+   - Recopila esta información de a una sola por vez:
+     * Capacidad/potencia del equipo (a# 9.000 BTU, b# 12.000 BTU, c# 18.000 BTU, d# 24.000 BTU o más).
+     * Antigüedad del equipo.
+     * Cuándo se le hizo el último mantenimiento.
+     * Si el equipo funciona correctamente o tiene falla (ej: ruido, no enfría, gotea).
      * Dirección completa para la visita.
      * Fecha y hora preferida para la cita.
-   - Costo del servicio: Infórmale al cliente que el valor base del servicio de mantención preventiva es de $${(config.maintenance_cost || 40000).toLocaleString('es-CL')} CLP. No propongas comisiones adicionales de visita técnica o factibilidad para mantenimientos.
-   - Al terminar de recopilar todos los datos, confírmale al cliente de forma muy amable que su solicitud ha sido registrada con éxito y que queda "Pendiente de revisión" por parte del administrador, quien validará los detalles y le enviará la confirmación final por este medio a la brevedad.
+   - Costo: El valor base del servicio de mantención preventiva es de $${(config.maintenance_cost || 40000).toLocaleString('es-CL')} CLP.
 
-2. AGENDA DE HORARIOS OCUPADOS (NO DISPONIBLES EN LA AGENDA):
+2. PARA VENTAS E INSTALACIONES NUEVAS:
+   - Si el cliente quiere cotizar, comprar o instalar un equipo nuevo, recopila esta información de a una sola por vez:
+     * Metros cuadrados aproximados del espacio a climatizar.
+     * Dirección completa donde le gustaría instalar el equipo.
+     * Fecha y hora preferida para agendar la visita técnica de factibilidad.
+
+3. CONFIRMACIÓN FINAL:
+   - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, confírmale al cliente de forma muy amable que su solicitud ha sido registrada con éxito y que queda "Pendiente de revisión" por el administrador.
+
+4. AGENDA DE HORARIOS OCUPADOS (NO DISPONIBLES EN LA AGENDA):
 ${calendarContext}
    - Si el cliente te propone un día y hora que coincide con alguno de estos, adviértele amablemente que ya está ocupado y sugiérele alternativas.
-
-3. DERIVACIÓN OBLIGATORIA DE VENTAS / NUEVAS INSTALACIONES:
-   - Si el cliente menciona que quiere COMPRAR un equipo de aire acondicionado, COTIZAR un equipo nuevo, o realizar una INSTALACIÓN de equipo nuevo, debes responder EXACTA y ÚNICAMENTE con la siguiente frase, sin añadir ningún saludo, despedida ni texto adicional:
-     "Perfecto. Te voy a derivar directamente con nuestro Área de Ventas para que un ejecutivo te asesore con el equipo ideal para tu espacio. Puedes contactarnos de inmediato por WhatsApp aquí: https://wa.me/${salesPhone}. ¡Un momento, por favor!"
-   - Es sumamente importante que uses esta frase exacta ante cualquier consulta de ventas o instalación, ya que el sistema la detectará para pausar el bot y asignar un comercial.
 `;
 
     const startTime = Date.now();
@@ -266,7 +305,13 @@ ${calendarContext}
         }
       });
 
-      const replyText = response.text || 'Disculpa, no pude procesar tu mensaje. ¿Podrías repetirlo?';
+      let replyText = response.text || 'Disculpa, no pude procesar tu mensaje. ¿Podrías repetirlo?';
+      
+      // Forzar siempre el link de Pilar si la IA olvidó ponerlo
+      if (!replyText.includes("56961897021") && !replyText.includes("Enseguida le notificaré")) {
+        replyText += "\n\nSi es que no quieres mantención o venta de aire acondicionado, contáctate con nuestra ejecutiva Pilar acá: https://wa.me/56961897021";
+      }
+
       session.history.push({ role: 'model', parts: [{ text: replyText }] });
 
       // Save image diagnosis to notes, or standard chat text extraction
@@ -276,22 +321,35 @@ ${calendarContext}
         this.extractLeadInfo(message, session.leadData, config);
       }
 
-      // Check for sales derivation trigger
-      const isSalesDerivation = replyText.includes("Área de Ventas") || replyText.includes("Te voy a derivar directamente");
-      if (isSalesDerivation) {
-        session.leadData.service_type = 'installation';
+      // Check for human assistance / derivation trigger
+      const isHumanRequested = replyText.includes("Enseguida le notificaré a nuestra ejecutiva") || replyText.includes("Un momento, por favor.");
+      if (isHumanRequested) {
         session.leadData.status = 'derivado_ventas';
-        session.leadData.notes = `[Derivado a Ventas]: El cliente mostró interés en cotizar/instalar equipos nuevos.`;
-      } else if (session.leadData.service_type === 'maintenance') {
-        const hasBtu = !!session.leadData.calculated_btu;
-        const hasAge = !!session.leadData.installation_age;
-        const hasLastMaint = !!session.leadData.last_maintenance_info;
-        const hasStatus = session.leadData.is_working_correctly !== undefined;
+        session.leadData.notes = (session.leadData.notes || '') + `\n[Ayuda Solicitada]: El cliente pidió asistencia humana directa.`;
+        
+        // Asynchronously notify Pilar
+        notifyExecutivePilar(cleanPhone, session.leadData).catch(err => {
+          console.error("Error notifying Pilar:", err);
+        });
+      } else if (session.leadData.service_type === 'maintenance' || session.leadData.service_type === 'installation') {
         const hasAddress = !!session.leadData.address;
         const hasTime = !!session.leadData.appointment_time;
         
-        if (hasBtu && hasAge && hasLastMaint && hasStatus && hasAddress && hasTime) {
-          session.leadData.status = 'pendiente_revision';
+        if (session.leadData.service_type === 'maintenance') {
+          const hasBtu = !!session.leadData.calculated_btu;
+          const hasAge = !!session.leadData.installation_age;
+          const hasLastMaint = !!session.leadData.last_maintenance_info;
+          const hasStatus = session.leadData.is_working_correctly !== undefined;
+          
+          if (hasBtu && hasAge && hasLastMaint && hasStatus && hasAddress && hasTime) {
+            session.leadData.status = 'pendiente_revision';
+          }
+        } else if (session.leadData.service_type === 'installation') {
+          const hasM2 = !!session.leadData.area_m2;
+          
+          if (hasM2 && hasAddress && hasTime) {
+            session.leadData.status = 'pendiente_revision';
+          }
         }
       }
 

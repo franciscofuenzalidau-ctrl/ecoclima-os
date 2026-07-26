@@ -95,7 +95,7 @@ router.put('/config', (req: Request, res: Response) => {
 
 // POST /api/leads - Create a new lead/client manually
 router.post('/', async (req: Request, res: Response) => {
-  const { phone, service_type, installation_age, address, appointment_time, area_m2, status, technician, notes, suggest_visit, installation_date, last_maintenance_date, last_maintenance_info, is_working_correctly } = req.body;
+  const { client_name, phone, service_type, installation_age, address, appointment_time, area_m2, status, technician, notes, suggest_visit, installation_date, last_maintenance_date, last_maintenance_info, is_working_correctly } = req.body;
 
   if (!phone) {
     return res.status(400).json({ error: 'El número de teléfono es requerido.' });
@@ -138,6 +138,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   const newLead = {
+    client_name: client_name || null,
     phone: cleanPhone,
     service_type: service_type || 'installation',
     installation_age: service_type === 'maintenance' && installation_age ? String(installation_age) : null,
@@ -207,6 +208,7 @@ router.get('/', async (req: Request, res: Response) => {
         // Map mock data to standard model
         const leads = mockData.map((item: any, index: number) => ({
           id: `mock-${index}`,
+          client_name: item.client_name || null,
           phone: item.phone || `5690000000${index}`,
           service_type: item.service_type || 'installation',
           installation_age: item.installation_age !== undefined ? item.installation_age : null,

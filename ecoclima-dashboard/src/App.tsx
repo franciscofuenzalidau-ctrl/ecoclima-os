@@ -29,6 +29,7 @@ import {
 
 interface Lead {
   id: string;
+  client_name?: string;
   phone: string;
   service_type: 'installation' | 'maintenance' | null;
   installation_age?: string;
@@ -76,6 +77,7 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     subtitle: "URGENCIA DE INSTALACIÓN",
     
     // Header Buttons
+    btn_guide: "Guía de Uso",
     btn_export_csv: "Exportar CSV",
     btn_send_accountant: "Enviar a Contador",
     btn_sync: "Sincronizar Datos",
@@ -276,6 +278,7 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     // Manual Client Registration
     btn_add_client: "Registrar Cliente",
     title_add_client: "Registrar Nuevo Cliente",
+    lbl_client_name: "Nombre del Cliente",
     lbl_phone: "Número de Teléfono",
     lbl_service_type: "Tipo de Servicio",
     lbl_address: "Dirección Completa",
@@ -323,6 +326,7 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     subtitle: "INSTALLATION URGENCY",
 
     // Header Buttons
+    btn_guide: "User Guide",
     btn_export_csv: "Export CSV",
     btn_send_accountant: "Send to Accountant",
     btn_sync: "Sync Data",
@@ -633,7 +637,9 @@ export default function App() {
   const [emailStatus, setEmailStatus] = useState<{ type: 'success' | 'error' | null; message: string; testUrl?: string }>({ type: null, message: '' });
 
   // Add Client modal states
+  const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
   const [showAddClientModal, setShowAddClientModal] = useState<boolean>(false);
+  const [newClientName, setNewClientName] = useState<string>('');
   const [newClientPhone, setNewClientPhone] = useState<string>('');
   const [newClientServiceType, setNewClientServiceType] = useState<'installation' | 'maintenance'>('installation');
   const [newClientAddress, setNewClientAddress] = useState<string>('');
@@ -671,6 +677,7 @@ export default function App() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          client_name: newClientName,
           phone: newClientPhone,
           service_type: newClientServiceType,
           installation_age: newClientServiceType === 'maintenance' ? newClientAge : null,
@@ -691,6 +698,7 @@ export default function App() {
         await fetchLeads();
         await fetchRouteOptimization();
         // Reset states
+        setNewClientName('');
         setNewClientPhone('');
         setNewClientAddress('');
         setNewClientAppointmentTime('');
@@ -1269,6 +1277,14 @@ export default function App() {
           </h2>
           <div className="flex items-center gap-3">
             <button 
+              onClick={() => setShowGuideModal(true)}
+              className="flex items-center gap-2 bg-slate-900/80 border border-blue-500/40 hover:bg-blue-500/20 hover:border-blue-400 transition px-3.5 py-1.5 rounded-xl text-xs font-bold text-blue-300 active:scale-95 glow-blue"
+              title={language === 'es' ? "Guía rápida del sistema" : "System Quick Guide"}
+            >
+              <Info className="h-4 w-4" />
+              {t('btn_guide', 'Guía de Uso')}
+            </button>
+            <button 
               onClick={() => setLanguage(prev => prev === 'es' ? 'en' : 'es')}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-cyan-500/40 hover:bg-cyan-500/20 hover:border-cyan-300 transition text-cyan-300 text-xs font-bold active:scale-95 glow-cyan"
               title={language === 'es' ? 'Switch to English' : 'Cambiar a Español'}
@@ -1717,7 +1733,7 @@ export default function App() {
                                 lead.status === 'derivado_ventas' ? 'bg-indigo-400 shadow-[0_0_10px_rgba(129,140,248,0.8)]' :
                                 'bg-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.8)]'
                               }`}></div>
-                              <span className="text-white font-bold text-sm">+{lead.phone}</span>
+                              <span className="text-white font-bold text-sm">{lead.client_name ? `${lead.client_name} (+${lead.phone})` : `+${lead.phone}`}</span>
                             </div>
                           </td>
                           <td className="py-4 px-2">
@@ -1905,7 +1921,7 @@ export default function App() {
                             }`}
                           >
                             <div className="flex justify-between items-center w-full">
-                              <span className="text-xs font-extrabold text-white">+{lead.phone}</span>
+                              <span className="text-xs font-extrabold text-white">{lead.client_name || `+${lead.phone}`}</span>
                               <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-white/10 border border-white/20 text-slate-100 shadow-sm">
                                 {lead.service_type === 'installation' ? t('lbl_install_action', 'Instalar') : t('lbl_maintenance_action', 'Mantención')}
                               </span>
@@ -2743,6 +2759,16 @@ export default function App() {
             </div>
 
             <form onSubmit={handleAddClient} className="flex flex-col gap-4 mt-2 max-h-[70vh] overflow-y-auto pr-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider">{t('lbl_client_name', 'Nombre del Cliente')}</label>
+                <input
+                  type="text"
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  placeholder="Ej. Juan Pérez"
+                  className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-cyan-400/50"
+                />
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Phone */}
                 <div className="flex flex-col gap-1.5">
@@ -2972,6 +2998,57 @@ export default function App() {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Guide Modal */}
+      {showGuideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative custom-scrollbar">
+            <button
+              onClick={() => setShowGuideModal(false)}
+              className="absolute top-4 right-4 p-2 bg-white/5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            
+            <div className="p-6 md:p-8 space-y-6">
+              <div className="flex items-center gap-3 border-b border-white/10 pb-4">
+                <div className="h-10 w-10 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                  <Info className="h-5 w-5" />
+                </div>
+                <h3 className="text-xl font-bold text-white font-outfit">{t('btn_guide', 'Guía de Uso')}</h3>
+              </div>
+
+              <div className="space-y-4 text-slate-300 text-sm leading-relaxed">
+                <h4 className="text-white font-bold text-base mt-2">1. ¿Cómo registrar un cliente nuevo?</h4>
+                <p>Haz clic en el botón <strong>"Registrar Cliente"</strong> situado en la sección superior derecha de las tablas. Se abrirá un formulario donde podrás ingresar el <strong>Nombre del Cliente</strong>, Teléfono, Tipo de Servicio y otros detalles. Una vez guardado, aparecerá en estado "Pendiente".</p>
+                
+                <h4 className="text-white font-bold text-base mt-4">2. ¿Qué significan los estados?</h4>
+                <ul className="list-disc pl-5 space-y-2">
+                  <li><span className="text-amber-400 font-bold">Pendiente:</span> El cliente fue registrado pero aún no ha sido visitado ni evaluado.</li>
+                  <li><span className="text-blue-400 font-bold">Evaluado:</span> El técnico ya revisó las condiciones (factibilidad) pero la instalación o mantención aún no se ha completado.</li>
+                  <li><span className="text-emerald-400 font-bold">Instalado:</span> El servicio se completó con éxito. (Estos pueden enviarse al Contador).</li>
+                  <li><span className="text-rose-400 font-bold">Cancelado:</span> El servicio no se pudo realizar o el cliente desistió.</li>
+                </ul>
+
+                <h4 className="text-white font-bold text-base mt-4">3. ¿Cómo asignar un técnico?</h4>
+                <p>En la tabla principal ("Gestión de Leads y Factibilidad"), busca al cliente y en la columna de <strong>Asignación</strong> elige al técnico (ej. Juan, Felipe, Francisco) del menú desplegable. Esto enviará una notificación al técnico para que inicie su ruta.</p>
+
+                <h4 className="text-white font-bold text-base mt-4">4. ¿Cómo usar el mapa?</h4>
+                <p>El mapa muestra las ubicaciones de los clientes pendientes. La herramienta calculará automáticamente la <strong>Ruta Óptima</strong> para que los técnicos gasten menos tiempo y combustible.</p>
+              </div>
+
+              <div className="pt-4 border-t border-white/10 flex justify-end">
+                <button
+                  onClick={() => setShowGuideModal(false)}
+                  className="px-5 py-2.5 rounded-xl text-sm font-bold bg-white/10 hover:bg-white/20 text-white transition active:scale-95"
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
