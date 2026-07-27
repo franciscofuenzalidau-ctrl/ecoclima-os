@@ -8,3 +8,4 @@ yarn-error.log*
 .DS_Store
 ecoclima-os-7ca1b-firebase-adminsdk-fbsvc-*.json
 data_mock/*.json
+!data_mock/config_reglas.json

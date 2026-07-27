@@ -1,0 +1,72 @@
+{
+  "btu_matrix": [
+    {
+      "max_m2": 18,
+      "btu": "9.000 BTU"
+    },
+    {
+      "max_m2": 24,
+      "btu": "12.000 BTU"
+    },
+    {
+      "max_m2": 36,
+      "btu": "18.000 BTU"
+    },
+    {
+      "max_m2": 48,
+      "btu": "24.000 BTU"
+    },
+    {
+      "max_m2": 72,
+      "btu": "36.000 BTU"
+    }
+  ],
+  "brands": {
+    "primary": "Clark",
+    "alternatives": [
+      "Khöne",
+      "Midea",
+      "Uniclima",
+      "Kendal",
+      "TCL",
+      "Anwo",
+      "Hisense",
+      "Samsung",
+      "LG"
+    ]
+  },
+  "installation_cost": {
+    "min": 100000,
+    "max": 150000
+  },
+  "maintenance_cost": 40000,
+  "feasibility_visit_cost": 5000,
+  "pricing_matrix": {
+    "9.000 BTU": {
+      "economicas": "250.000 a 300.000",
+      "intermedias": "290.000 a 380.000",
+      "premium": "400.000 a 580.000"
+    },
+    "12.000 BTU": {
+      "economicas": "290.000 a 340.000",
+      "intermedias": "340.000 a 460.000",
+      "premium": "480.000 a 750.000"
+    },
+    "18.000 BTU": {
+      "economicas": "430.000 a 520.000",
+      "intermedias": "490.000 a 650.000",
+      "premium": "620.000 a 930.000"
+    },
+    "24.000 BTU": {
+      "economicas": "560.000 a 660.000",
+      "intermedias": "650.000 a 800.000",
+      "premium": "750.000 a 1.200.000"
+    },
+    "36.000 BTU": {
+      "economicas": "900.000 a 1.150.000",
+      "intermedias": "1.250.000 a 1.700.000",
+      "premium": "1.600.000 a 2.200.000+"
+    }
+  },
+  "sales_phone": "56990939188"
+}
