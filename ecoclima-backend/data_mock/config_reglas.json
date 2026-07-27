@@ -39,7 +39,9 @@
     "min": 100000,
     "max": 150000
   },
-  "maintenance_cost": 40000,
+  "maintenance_cost": 59000,
+  "maintenance_cost_small": 59000,
+  "maintenance_cost_large": 65000,
   "feasibility_visit_cost": 5000,
   "pricing_matrix": {
     "9.000 BTU": {

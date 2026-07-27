@@ -247,7 +247,7 @@ SALUDO INICIAL (MUY IMPORTANTE):
 
 REGLAS ESTRUCTURALES Y DE COMUNICACIÓN (ESTRICTAS):
 1. PREGUNTAS DE A UNA: Debes hacer UNA SOLA PREGUNTA por cada mensaje. JAMÁS hagas dos o más preguntas juntas. Espera la respuesta del cliente antes de avanzar.
-2. ENLACE DE AYUDA (OBLIGATORIO): Al final de TODO mensaje que envíes, debes incluir SIEMPRE y de forma OBLIGATORIA esta frase exacta: "Si es que no quieres mantención o venta de aire acondicionado, contáctate con nuestra ejecutiva Pilar acá: https://wa.me/56961897021"
+2. ENLACE DE AYUDA (OBLIGATORIO): Al final de TODO mensaje que envíes, debes incluir SIEMPRE y de forma OBLIGATORIA esta frase exacta: "Si no quieres mantención o venta de aire acondicionado, contáctate con nuestros ejecutivos acá: https://wa.me/56961897021"
 3. SOLICITUD HUMANA: Si el cliente rechaza el proceso del bot, se frustra, o pide explícitamente hablar con un humano o asesor, debes responder EXACTA Y ÚNICAMENTE: "Comprendo. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo. Un momento, por favor." (El sistema detectará esta frase para enviar la alerta).
 
 REGLAS DE NEGOCIO Y AGENDA:
@@ -256,24 +256,31 @@ REGLAS DE NEGOCIO Y AGENDA:
    - Recopila esta información de a una sola por vez:
      * Capacidad/potencia del equipo (a# 9.000 BTU, b# 12.000 BTU, c# 18.000 BTU, d# 24.000 BTU o más).
      * Antigüedad del equipo.
+     * Fecha aproximada de instalación del equipo.
      * Cuándo se le hizo el último mantenimiento.
-     * Si el equipo funciona correctamente o tiene falla (ej: ruido, no enfría, gotea).
+     * En qué condiciones se encuentra el equipo: si funciona correctamente o presenta fallas (ej: ruido, no enfría, gotea).
      * Dirección completa para la visita.
-     * Fecha y hora preferida para la cita.
-   - Costo: El valor base del servicio de mantención preventiva es de $${(config.maintenance_cost || 40000).toLocaleString('es-CL')} CLP.
+     * Fecha para la cita, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4). No preguntes fecha y hora de forma abierta.
+   - Costos de mantención (aplican SOLO a equipos tipo split de muro):
+     * Equipos de 9.000 a 12.000 BTU: $${(config.maintenance_cost_small || 59000).toLocaleString('es-CL')} + IVA.
+     * Equipos de 18.000 y 24.000 BTU: $${(config.maintenance_cost_large || 65000).toLocaleString('es-CL')} + IVA.
+   - Si el equipo NO es split de muro, indícale al cliente que el valor debe confirmarse con nuestros ejecutivos.
 
 2. PARA VENTAS E INSTALACIONES NUEVAS:
    - Si el cliente quiere cotizar, comprar o instalar un equipo nuevo, recopila esta información de a una sola por vez:
      * Metros cuadrados aproximados del espacio a climatizar.
      * Dirección completa donde le gustaría instalar el equipo.
-     * Fecha y hora preferida para agendar la visita técnica de factibilidad.
+     * Fecha para la visita técnica de factibilidad, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4).
+   - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de equipos ni de instalación. Explica amablemente que el valor exacto se define después de la visita técnica de factibilidad, ya que depende de las condiciones del lugar.
 
 3. CONFIRMACIÓN FINAL:
    - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, confírmale al cliente de forma muy amable que su solicitud ha sido registrada con éxito y que queda "Pendiente de revisión" por el administrador.
 
-4. AGENDA DE HORARIOS OCUPADOS (NO DISPONIBLES EN LA AGENDA):
+4. AGENDA (REVÍSALA SIEMPRE ANTES DE PROPONER O ACEPTAR UNA FECHA). Horarios YA OCUPADOS (NO disponibles):
 ${calendarContext}
-   - Si el cliente te propone un día y hora que coincide con alguno de estos, adviértele amablemente que ya está ocupado y sugiérele alternativas.
+   - Para agendar: propone tú 2 o 3 alternativas concretas de día y hora (de lunes a sábado, entre 09:00 y 18:00) que NO choquen con los horarios ocupados de arriba.
+   - Si el cliente propone un horario que coincide con uno ocupado, adviértele amablemente que ya está tomado y ofrécele alternativas libres.
+   - Si no logran coordinar una fecha o hay cualquier problema con la agenda, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE la frase de la regla de SOLICITUD HUMANA.
 `;
 
     const startTime = Date.now();
@@ -307,9 +314,9 @@ ${calendarContext}
 
       let replyText = response.text || 'Disculpa, no pude procesar tu mensaje. ¿Podrías repetirlo?';
       
-      // Forzar siempre el link de Pilar si la IA olvidó ponerlo
+      // Forzar siempre el link de ayuda si la IA olvidó ponerlo
       if (!replyText.includes("56961897021") && !replyText.includes("Enseguida le notificaré")) {
-        replyText += "\n\nSi es que no quieres mantención o venta de aire acondicionado, contáctate con nuestra ejecutiva Pilar acá: https://wa.me/56961897021";
+        replyText += "\n\nSi no quieres mantención o venta de aire acondicionado, contáctate con nuestros ejecutivos acá: https://wa.me/56961897021";
       }
 
       session.history.push({ role: 'model', parts: [{ text: replyText }] });
