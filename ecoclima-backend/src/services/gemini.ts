@@ -65,6 +65,8 @@ interface UserSession {
     is_working_correctly?: boolean;
     installation_date?: string;
     last_maintenance_date?: string;
+    satisfaction_rating?: number;
+    satisfaction_comment?: string;
   };
 }
 
@@ -213,6 +215,17 @@ export class GeminiService {
       return ''; // Empty return to pause bot response
     }
 
+    // Captura de respuestas a la encuesta de satisfacción (servicio ya completado)
+    const surveyMode = !!(existingLead && existingLead.status === 'Instalado');
+    if (surveyMode && message) {
+      const ratingMatch = message.trim().match(/^[1-5]\b/);
+      if (ratingMatch && !existingLead.satisfaction_rating) {
+        session.leadData.satisfaction_rating = parseInt(ratingMatch[0], 10);
+      }
+      const prev = existingLead.satisfaction_comment ? existingLead.satisfaction_comment + ' | ' : '';
+      session.leadData.satisfaction_comment = (prev + message).slice(0, 500);
+    }
+
     // If geolocation is received
     if (location) {
       session.leadData.latitude = location.latitude;
@@ -261,10 +274,7 @@ REGLAS DE NEGOCIO Y AGENDA:
      * En qué condiciones se encuentra el equipo: si funciona correctamente o presenta fallas (ej: ruido, no enfría, gotea).
      * Dirección completa para la visita.
      * Fecha para la cita, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4). No preguntes fecha y hora de forma abierta.
-   - Costos de mantención (aplican SOLO a equipos tipo split de muro):
-     * Equipos de 9.000 a 12.000 BTU: $${(config.maintenance_cost_small || 59000).toLocaleString('es-CL')} + IVA.
-     * Equipos de 18.000 y 24.000 BTU: $${(config.maintenance_cost_large || 65000).toLocaleString('es-CL')} + IVA.
-   - Si el equipo NO es split de muro, indícale al cliente que el valor debe confirmarse con nuestros ejecutivos.
+   - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de mantención. Si el cliente pregunta por el precio, explícale amablemente que nuestra ejecutiva le confirmará el valor al contactarlo.
 
 2. PARA VENTAS E INSTALACIONES NUEVAS:
    - Si el cliente quiere cotizar, comprar o instalar un equipo nuevo, recopila esta información de a una sola por vez:
@@ -273,14 +283,20 @@ REGLAS DE NEGOCIO Y AGENDA:
      * Fecha para la visita técnica de factibilidad, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4).
    - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de equipos ni de instalación. Explica amablemente que el valor exacto se define después de la visita técnica de factibilidad, ya que depende de las condiciones del lugar.
 
-3. CONFIRMACIÓN FINAL:
-   - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, confírmale al cliente de forma muy amable que su solicitud ha sido registrada con éxito y que queda "Pendiente de revisión" por el administrador.
+3. CIERRE Y DERIVACIÓN FINAL:
+   - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, agradécele al cliente y cierra con este texto EXACTO (el sistema lo detecta para alertar a la ejecutiva): "Tu solicitud quedó registrada con éxito. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo, te confirme el valor y coordine los detalles. Un momento, por favor."
 
 4. AGENDA (REVÍSALA SIEMPRE ANTES DE PROPONER O ACEPTAR UNA FECHA). Horarios YA OCUPADOS (NO disponibles):
 ${calendarContext}
    - Para agendar: propone tú 2 o 3 alternativas concretas de día y hora (de lunes a sábado, entre 09:00 y 18:00) que NO choquen con los horarios ocupados de arriba.
    - Si el cliente propone un horario que coincide con uno ocupado, adviértele amablemente que ya está tomado y ofrécele alternativas libres.
    - Si no logran coordinar una fecha o hay cualquier problema con la agenda, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE la frase de la regla de SOLICITUD HUMANA.
+${surveyMode ? `
+5. MODO ENCUESTA DE SATISFACCIÓN (ACTIVO PARA ESTE CLIENTE):
+   - El servicio de este cliente YA FUE COMPLETADO y se le envió una encuesta de satisfacción. NO inicies flujos de venta ni mantención salvo que él lo pida explícitamente.
+   - Si responde con una nota (1 a 5) y/o un comentario, agradécele calurosamente en nombre de Furtz Clima.
+   - Después de agradecer, pregúntale UNA sola vez si nos autoriza a compartir su comentario como testimonio de clientes.
+   - Si autoriza, confirma que quedó registrado y despídete cordialmente. No insistas más.` : ''}
 `;
 
     const startTime = Date.now();

@@ -252,6 +252,7 @@ router.put('/:phone', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'El lead especificado no existe en Firestore.' });
     }
 
+    const previousStatus = doc.data()?.status;
     await leadRef.update(updateData);
     updateLocalMock(phone, updateData);
     if (updateData.technician) {
@@ -259,15 +260,26 @@ router.put('/:phone', async (req: Request, res: Response) => {
         console.error('Error in notifyTechnician background promise:', err);
       });
     }
+    // Al cerrar la venta/servicio (estado Instalado), enviar encuesta de satisfacción al cliente
+    if (updateData.status === 'Instalado' && previousStatus !== 'Instalado') {
+      sendSatisfactionSurvey(phone).catch(err => {
+        console.error('Error enviando encuesta de satisfacción:', err);
+      });
+    }
     res.status(200).json({ success: true, message: 'Lead actualizado con éxito.' });
   } catch (error: any) {
     console.warn(`Advertencia: Simulando actualización de lead ${phone} debido a error en Firestore:`, error.message);
-    
+
     // Fallback: update local JSON mock file
     updateLocalMock(phone, updateData);
     if (updateData.technician) {
       notifyTechnician(updateData.technician, phone, updateData).catch(err => {
         console.error('Error in notifyTechnician background promise:', err);
+      });
+    }
+    if (updateData.status === 'Instalado') {
+      sendSatisfactionSurvey(phone).catch(err => {
+        console.error('Error enviando encuesta de satisfacción:', err);
       });
     }
     res.status(200).json({ success: true, message: 'Lead actualizado con éxito (local mock).' });
@@ -553,6 +565,33 @@ async function notifyTechnician(technicianName: string, leadPhone: string, leadD
     }
   } catch (error: any) {
     console.error(`Error al enviar notificación de WhatsApp al técnico:`, error.response?.data || error.message);
+  }
+}
+
+// Send post-service satisfaction survey to the client via WhatsApp
+async function sendSatisfactionSurvey(clientPhone: string) {
+  try {
+    const whatsappToken = process.env.WHATSAPP_TOKEN;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    const messageText = `¡Hola! Te saluda el asistente de Furtz Clima 😊\n\n` +
+      `Tu servicio ha sido completado con éxito. Nos encantaría conocer tu opinión:\n\n` +
+      `⭐ Del 1 al 5, ¿qué nota le pondrías a nuestro servicio?\n\n` +
+      `Si quieres, agrega también un comentario. ¡Tu opinión nos ayuda a mejorar!`;
+
+    if (whatsappToken && phoneId) {
+      const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
+      await axios.post(
+        url,
+        { messaging_product: 'whatsapp', to: clientPhone, type: 'text', text: { body: messageText } },
+        { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` } }
+      );
+      console.log(`[WHATSAPP REAL] Encuesta de satisfacción enviada al cliente +${clientPhone}`);
+    } else {
+      console.log(`[SIMULACIÓN ENCUESTA] Encuesta de satisfacción para +${clientPhone}:\n${messageText}`);
+    }
+  } catch (error: any) {
+    console.error('Error al enviar encuesta de satisfacción:', error.response?.data || error.message);
   }
 }
 
