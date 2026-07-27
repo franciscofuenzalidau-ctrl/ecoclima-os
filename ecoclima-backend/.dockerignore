@@ -5,3 +5,5 @@ dist
 ecoclima-os-7ca1b-firebase-adminsdk-fbsvc-*.json
 data_mock/*.json
 .git
+
+!data_mock/config_reglas.json
