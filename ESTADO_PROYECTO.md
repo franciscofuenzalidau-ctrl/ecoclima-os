@@ -1,5 +1,17 @@
 # Estado del Proyecto — EcoClima OS / Furtz Clima OS
-**Última actualización: 26 de julio de 2026, ~23:00 (Chile)**
+**Última actualización: 27 de julio de 2026, ~12:00 (Chile)**
+
+## ✅ ACTUALIZACIÓN 27-07: EL BOT ESTÁ EN PRODUCCIÓN Y RESPONDIENDO POR WHATSAPP
+
+Verificado a las 11:59 del 27-07: mensaje real por WhatsApp → webhook Cloud Run → Gemini → respuesta al cliente → lead/log en Firestore. Sistema completo operativo.
+
+Lo que se arregló el 27-07:
+1. **Causa raíz de la caída histórica del bot: créditos prepagados de Gemini agotados** (error 429 RESOURCE_EXHAUSTED). El bot llevaba semanas caído por esto sin que nadie lo notara. Se recargaron créditos en AI Studio (aistudio.google.com → Facturación). **⚠️ REVISAR SALDO CADA SEMANA** — se agota sin aviso y suspende el servicio.
+2. **Webhook de Meta redirigido al servidor nuevo.** La UI de Meta no guardaba el cambio; se fijó por API con `override_callback_uri` a nivel de la cuenta de WhatsApp Business (WABA `1024142930581510`). Los mensajes ya NO van al servidor fantasma.
+3. **Descubierto servidor fantasma**: despliegue viejo en `https://ecoclima-os-988941778538.us-east1.run.app` (otro proyecto de Google, región us-east1) que recibía los mensajes y fallaba. Ya no recibe tráfico. **PENDIENTE: apagarlo/eliminarlo** para no pagar de más ni confundir.
+4. **El token de WhatsApp resultó ser PERMANENTE** (system user "bot", nunca expira) — el pendiente "token permanente" ya estaba resuelto sin saberlo.
+5. Datos clave: Phone Number ID `1262901480233252` · WABA ID `1024142930581510` · App Meta `877662011631083` (Furtz Clima OS).
+6. `.env` local actualizado con token de WhatsApp, phone ID y clave Gemini nueva (`...Oz9A`).
 
 > Este documento registra TODO lo que se hizo el 26-07-2026 y el estado real del sistema.
 > Leer esto ANTES de tocar cualquier cosa, para no duplicar trabajo ni romper lo que ya funciona.
