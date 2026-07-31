@@ -63,6 +63,15 @@ Todo en `src/services/gemini.ts` (systemInstruction + extractLeadInfo) y `src/ro
 - **Precios de mantención en `config_reglas.json`**: `maintenance_cost_small` 59000 y `maintenance_cost_large` 65000 (referencia interna; el bot no los dice).
 - ⚠️ **Limitación WhatsApp**: mensajes iniciados por la empresa (encuesta y recordatorio anual) requieren **plantilla aprobada por Meta** si pasaron +24 h desde el último mensaje del cliente. Para la campaña anual siempre aplica. PENDIENTE crear la plantilla.
 
+## 3-ter. Limpieza y monitoreo (31-07-2026)
+
+- **Repo limpio**: se sacaron del control de versiones los ~50 archivos de la página Devpost guardada (quedaron en disco, solo salieron de git). El repo pasó de 96 a 47 archivos: solo `ecoclima-backend/`, `ecoclima-dashboard/`, `README.md`, `ESTADO_PROYECTO.md` y `.gitignore`.
+- **README.md en inglés** creado para los jueces (arquitectura, qué decide la IA, cómo correrlo, variables de entorno, cómo probar el webhook con curl).
+- **Alerta de disponibilidad creada**: uptime check "Bot EcoClima - backend health" sobre `https://ecoclima-backend-...run.app/health` cada 1 min, con política de alerta "ALERTA: Bot EcoClima caido" que notifica por email a franciscofuenzalidau@gmail.com (canal "Francisco - Email"). Si el bot se cae >1 min, llega correo.
+- **Servidores fantasma identificados**: estaban en el proyecto **`massive-physics-412101` ("My First Project")**, NO en ecoclima-os-7ca1b. Eran 2 servicios Cloud Run llamados `ecoclima-os` (us-east1 y us-central1) con 2 activadores de Cloud Build escuchando el MISMO repo de GitHub — por eso se redesplegaban solos con cada push nuestro.
+  - **Acción tomada**: los 2 activadores de Cloud Build quedaron **Inhabilitados** (ya no se redespliegan). Los servicios NO se borraron por decisión del usuario; siguen existiendo pero sin recibir tráfico de WhatsApp (el webhook apunta a Santiago).
+  - Pendiente opcional: borrar esos 2 servicios cuando se confirme que no hacen falta.
+
 ## 4. PENDIENTES (en orden de urgencia)
 
 - [ ] **Webhook de Meta**: en developers.facebook.com → app → WhatsApp → Configuración → Webhook:
