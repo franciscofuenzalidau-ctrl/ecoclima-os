@@ -260,8 +260,15 @@ router.put('/:phone', async (req: Request, res: Response) => {
         console.error('Error in notifyTechnician background promise:', err);
       });
     }
-    // Al cerrar la venta/servicio (estado Instalado), enviar encuesta de satisfacción al cliente
+    // Al cerrar la venta/servicio (estado Instalado): registrar fecha para el recordatorio
+    // anual y enviar la encuesta de satisfacción al cliente
     if (updateData.status === 'Instalado' && previousStatus !== 'Instalado') {
+      const serviceType = updateData.service_type || doc.data()?.service_type;
+      const completionDate = new Date().toISOString();
+      const dateField = serviceType === 'installation' ? 'installation_date' : 'last_maintenance_date';
+      await leadRef.update({ [dateField]: completionDate });
+      updateLocalMock(phone, { [dateField]: completionDate });
+
       sendSatisfactionSurvey(phone).catch(err => {
         console.error('Error enviando encuesta de satisfacción:', err);
       });
@@ -574,10 +581,10 @@ async function sendSatisfactionSurvey(clientPhone: string) {
     const whatsappToken = process.env.WHATSAPP_TOKEN;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
-    const messageText = `¡Hola! Te saluda el asistente de Furtz Clima 😊\n\n` +
-      `Tu servicio ha sido completado con éxito. Nos encantaría conocer tu opinión:\n\n` +
-      `⭐ Del 1 al 5, ¿qué nota le pondrías a nuestro servicio?\n\n` +
-      `Si quieres, agrega también un comentario. ¡Tu opinión nos ayuda a mejorar!`;
+    const messageText = `¡Hola! Te saluda el asistente virtual de Furtz Clima 😊\n\n` +
+      `Tu servicio ya fue completado y queremos saber cómo lo hicimos. Son solo 4 preguntas rápidas:\n\n` +
+      `1️⃣ Del *1 al 7*, ¿qué nota le pones al trabajo realizado?\n\n` +
+      `Respóndeme con el número y seguimos 👇`;
 
     if (whatsappToken && phoneId) {
       const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
@@ -658,7 +665,20 @@ router.post('/send-preventive-offers', async (req: Request, res: Response) => {
     let sentCount = 0;
 
     for (const lead of eligibleLeads) {
-      const campaignMessage = `¡Hola! En Furtz Clima recordamos que tu equipo de aire acondicionado fue instalado o mantenido hace más de un año. Te sugerimos realizar un Mantenimiento Preventivo para asegurar su eficiencia y durabilidad. El valor base es de $40.000 CLP. Responde a este mensaje para agendar tu visita técnica.`;
+      // El mensaje cambia según si el servicio original fue Instalación o Mantención
+      const wasInstallation = lead.service_type === 'installation';
+      const equipos = lead.equipment_count && lead.equipment_count > 1
+        ? `tus ${lead.equipment_count} equipos`
+        : 'tu equipo';
+      const referencia = wasInstallation
+        ? `se cumple un año desde que instalamos ${equipos} de aire acondicionado`
+        : `se cumple un año desde la última mantención de ${equipos} de aire acondicionado`;
+
+      const campaignMessage =
+        `¡Hola! 👋 Te saluda el asistente virtual de *Furtz Clima*.\n\n` +
+        `Queremos contarte que ${referencia}. 🗓️\n\n` +
+        `Para mantener su rendimiento, evitar fallas y prolongar su vida útil, te recomendamos realizar la *mantención preventiva anual*.\n\n` +
+        `¿Te gustaría agendar tu visita? Respóndenos *SÍ* a este mensaje y coordinamos día y hora según nuestra disponibilidad. 😊`;
 
       if (whatsappToken && phoneId) {
         try {

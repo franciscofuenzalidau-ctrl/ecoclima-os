@@ -67,6 +67,10 @@ interface UserSession {
     last_maintenance_date?: string;
     satisfaction_rating?: number;
     satisfaction_comment?: string;
+    client_type?: 'empresa' | 'particular';
+    contact_phone?: string;
+    equipment_count?: number;
+    payment_method?: string;
   };
 }
 
@@ -168,6 +172,44 @@ async function notifyExecutivePilar(clientPhone: string, leadData: any) {
   }
 }
 
+// Helper to notify assigned technician when a client shares their location
+async function notifyTechnicianOfLocation(clientPhone: string, technicianName: string, lat: number, lng: number, address: string) {
+  try {
+    const techPhones: { [key: string]: string } = {
+      'francisco': '56990939188',
+      'felipe': '56911112222',
+      'juan': '56933334444'
+    };
+
+    const cleanName = technicianName.toLowerCase().trim();
+    const techPhone = techPhones[cleanName];
+    if (!techPhone) {
+      console.log(`[NOTIFICACIÓN TÉCNICO] No se encontró número para el técnico "${technicianName}" al reenviar ubicación.`);
+      return;
+    }
+
+    const whatsappToken = process.env.WHATSAPP_TOKEN;
+    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    const mapsLink = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    const messageText = `📍 *Ubicación Recibida*\n\nEl cliente +${clientPhone} acaba de compartir su ubicación exacta por GPS.\n\nDirección aproximada: ${address}\n\nAbre este enlace para verlo en el mapa o iniciar tu navegación:\n👉 ${mapsLink}`;
+
+    if (whatsappToken && phoneId) {
+      const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
+      await axios.post(
+        url,
+        { messaging_product: 'whatsapp', to: techPhone, type: 'text', text: { body: messageText } },
+        { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` } }
+      );
+      console.log(`[WHATSAPP REAL] Ubicación reenviada con éxito al técnico ${technicianName} (+${techPhone})`);
+    } else {
+      console.log(`\n[SIMULACIÓN NOTIFICACIÓN TÉCNICO] Para: ${technicianName} (+${techPhone})\nMensaje:\n${messageText}\n`);
+    }
+  } catch (error: any) {
+    console.error(`Error al enviar ubicación al técnico:`, error.response?.data || error.message);
+  }
+}
+
 export class GeminiService {
   private ai: GoogleGenAI;
 
@@ -218,12 +260,12 @@ export class GeminiService {
     // Captura de respuestas a la encuesta de satisfacción (servicio ya completado)
     const surveyMode = !!(existingLead && existingLead.status === 'Instalado');
     if (surveyMode && message) {
-      const ratingMatch = message.trim().match(/^[1-5]\b/);
+      const ratingMatch = message.trim().match(/^([1-7])\b/);
       if (ratingMatch && !existingLead.satisfaction_rating) {
-        session.leadData.satisfaction_rating = parseInt(ratingMatch[0], 10);
+        session.leadData.satisfaction_rating = parseInt(ratingMatch[1], 10);
       }
       const prev = existingLead.satisfaction_comment ? existingLead.satisfaction_comment + ' | ' : '';
-      session.leadData.satisfaction_comment = (prev + message).slice(0, 500);
+      session.leadData.satisfaction_comment = (prev + message).slice(0, 800);
     }
 
     // If geolocation is received
@@ -238,6 +280,17 @@ export class GeminiService {
       session.history.push({ role: 'model', parts: [{ text: responseText }] });
       
       aiLogger.logEvent(cleanPhone, 'location_received', `Recibió ubicación GPS y resolvió dirección: "${address}"`, 10, 500);
+      
+      // FIX: Ensure we save the location to the database before returning
+      await this.saveLeadToFirestore(cleanPhone, session.leadData);
+      
+      // If a technician is already assigned to this client, forward the location
+      if (existingLead && existingLead.technician) {
+        notifyTechnicianOfLocation(cleanPhone, existingLead.technician, location.latitude, location.longitude, address).catch(err => {
+          console.error("Error forwarding location to technician:", err);
+        });
+      }
+
       return responseText;
     }
 
@@ -257,6 +310,15 @@ Eres el asistente virtual oficial de Furtz Clima. Tu objetivo es atender amablem
 
 SALUDO INICIAL (MUY IMPORTANTE):
 - Cuando el cliente te escriba por primera vez, debes presentarte y preguntarle explícitamente qué servicio busca, ofreciéndole estas dos opciones: 1) Mantenimiento Preventivo o 2) Venta/Instalación de Aire Acondicionado.
+- La opción que elija define el TIPO DE SERVICIO del registro: opción 1 = "Mantención", opción 2 = "Instalación". Si el cliente no lo deja claro, pregúntaselo antes de continuar.
+
+DATOS COMUNES DE INGRESO (OBLIGATORIOS EN AMBOS FLUJOS, UNO POR MENSAJE):
+Después de saber qué servicio busca, y antes de las preguntas propias de cada flujo, recopila SIEMPRE estos cuatro datos, uno por mensaje y en este orden:
+   a) Si es empresa o particular. Texto sugerido: "Para registrar tu solicitud, ¿el servicio es para una *empresa* o para un *particular*?"
+   b) Número de teléfono de contacto. Texto sugerido: "¿A qué número de teléfono podemos contactarte? Puedes confirmarme este mismo si prefieres."
+   c) Cantidad de equipos. Texto sugerido: "¿Cuántos equipos de aire acondicionado necesitas atender?"
+   d) Forma de pago. Texto sugerido: "¿Qué forma de pago prefieres: transferencia, efectivo, débito/crédito?"
+   - Si el cliente respondió "empresa" en (a), agrega en la pregunta (d) que también trabajamos con facturación a empresas.
 
 REGLAS ESTRUCTURALES Y DE COMUNICACIÓN (ESTRICTAS):
 1. PREGUNTAS DE A UNA: Debes hacer UNA SOLA PREGUNTA por cada mensaje. JAMÁS hagas dos o más preguntas juntas. Espera la respuesta del cliente antes de avanzar.
@@ -293,10 +355,15 @@ ${calendarContext}
    - Si no logran coordinar una fecha o hay cualquier problema con la agenda, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE la frase de la regla de SOLICITUD HUMANA.
 ${surveyMode ? `
 5. MODO ENCUESTA DE SATISFACCIÓN (ACTIVO PARA ESTE CLIENTE):
-   - El servicio de este cliente YA FUE COMPLETADO y se le envió una encuesta de satisfacción. NO inicies flujos de venta ni mantención salvo que él lo pida explícitamente.
-   - Si responde con una nota (1 a 5) y/o un comentario, agradécele calurosamente en nombre de Furtz Clima.
-   - Después de agradecer, pregúntale UNA sola vez si nos autoriza a compartir su comentario como testimonio de clientes.
-   - Si autoriza, confirma que quedó registrado y despídete cordialmente. No insistas más.` : ''}
+   - El servicio de este cliente YA FUE COMPLETADO y se le envió la primera pregunta de la encuesta. NO inicies flujos de venta ni mantención salvo que él lo pida explícitamente.
+   - Haz las preguntas UNA POR MENSAJE, en este orden exacto, usando estos textos:
+     1) (ya enviada por el sistema) "Del 1 al 7, ¿qué nota le pones al trabajo realizado?"
+     2) "¡Gracias por tu nota! 🙌\\n\\n2️⃣ ¿El equipo cumplió con tus expectativas?"
+     3) "3️⃣ ¿Nos recomendarías a tus amigos o vecinos?"
+     4) "4️⃣ Por último, ¿quieres dejarnos algún comentario o sugerencia? Puedes escribir con total libertad, lo leemos todos."
+   - Al recibir el comentario final responde: "¡Muchas gracias por tu tiempo! 💙 Tu opinión nos ayuda a mejorar cada día. ¿Nos autorizas a compartir tu comentario como testimonio de clientes de Furtz Clima?"
+   - Tras su respuesta, agradece y despídete cordialmente. No insistas ni repitas preguntas ya respondidas.
+   - Si el cliente no quiere responder, agradécele igual y despídete sin insistir.` : ''}
 `;
 
     const startTime = Date.now();
@@ -407,6 +474,42 @@ ${surveyMode ? `
       leadData.service_type = 'maintenance';
     } else if (textLower.includes('instalar') || textLower.includes('instalacion') || textLower.includes('instalación') || textLower.includes('nuevo')) {
       leadData.service_type = 'installation';
+    }
+
+    // Client type: empresa o particular
+    if (!leadData.client_type) {
+      if (textLower.includes('empresa') || textLower.includes('compañia') || textLower.includes('compañía') || textLower.includes('negocio') || textLower.includes('factura')) {
+        leadData.client_type = 'empresa';
+      } else if (textLower.includes('particular') || textLower.includes('personal') || textLower.includes('casa') || textLower.includes('hogar')) {
+        leadData.client_type = 'particular';
+      }
+    }
+
+    // Contact phone (9 digits, Chilean format with or without +56)
+    if (!leadData.contact_phone) {
+      const phoneMatch = text.replace(/[\s.-]/g, '').match(/(?:\+?56)?(9\d{8})/);
+      if (phoneMatch) {
+        leadData.contact_phone = phoneMatch[1];
+      }
+    }
+
+    // Equipment count
+    if (!leadData.equipment_count) {
+      const countMatch = textLower.match(/(\d+)\s*(equipos?|unidades?|aires?|split)/);
+      if (countMatch) {
+        leadData.equipment_count = parseInt(countMatch[1], 10);
+      } else if (/\b(un|uno|1)\s+(equipo|aire|split)/.test(textLower)) {
+        leadData.equipment_count = 1;
+      }
+    }
+
+    // Payment method
+    if (!leadData.payment_method) {
+      if (textLower.includes('transferencia')) leadData.payment_method = 'Transferencia';
+      else if (textLower.includes('efectivo')) leadData.payment_method = 'Efectivo';
+      else if (textLower.includes('credito') || textLower.includes('crédito')) leadData.payment_method = 'Tarjeta de crédito';
+      else if (textLower.includes('debito') || textLower.includes('débito') || textLower.includes('redcompra')) leadData.payment_method = 'Tarjeta de débito';
+      else if (textLower.includes('factura')) leadData.payment_method = 'Facturación empresa';
     }
 
     // Area detection (e.g. 20m2, 20 m2, 20 metros cuadrados)
