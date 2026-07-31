@@ -50,6 +50,19 @@ Lo que se arregló el 27-07:
 8. **`firebase deploy --only hosting`** ejecutado → dashboard publicado. Verificado: `https://ecoclima-os-7ca1b.web.app/api/leads` devuelve JSON real de Firestore.
 9. `.gitignore` del dashboard: agregado `.firebase/` (caché local de deploy).
 
+## 3-bis. Cambios al flujo del bot (30-07-2026, requerimientos de Pilar)
+
+Todo en `src/services/gemini.ts` (systemInstruction + extractLeadInfo) y `src/routes/leads.ts`:
+
+- **Sin precios**: el bot NO entrega valores de mantención ni instalación. Al terminar las preguntas deriva a la ejecutiva con la frase que dispara la alerta y pausa el bot.
+- **Formulario de ingreso** (ambos flujos, una pregunta por mensaje): empresa o particular · teléfono de contacto · cantidad de equipos · forma de pago. Se guardan en `client_type`, `contact_phone`, `equipment_count`, `payment_method`.
+- **Agendamiento**: el bot propone 2-3 fechas libres (lun-sáb 09:00-18:00) revisando la agenda; no pregunta fecha/hora abierta. Si no logran coordinar, deriva.
+- **Tipo de servicio**: opción 1 del saludo = Mantención, opción 2 = Instalación.
+- **Recordatorio anual**: al marcar "Instalado" se graba automáticamente `installation_date` o `last_maintenance_date` (antes era manual y la campaña no encontraba clientes). El mensaje de campaña se adapta a instalación/mantención y a la cantidad de equipos.
+- **Encuesta de satisfacción**: al pasar a "Instalado" el bot envía 4 preguntas (nota 1-7, expectativas, recomendación, comentario libre) y pide autorización para usar el testimonio. Se guarda en `satisfaction_rating` y `satisfaction_comment`.
+- **Precios de mantención en `config_reglas.json`**: `maintenance_cost_small` 59000 y `maintenance_cost_large` 65000 (referencia interna; el bot no los dice).
+- ⚠️ **Limitación WhatsApp**: mensajes iniciados por la empresa (encuesta y recordatorio anual) requieren **plantilla aprobada por Meta** si pasaron +24 h desde el último mensaje del cliente. Para la campaña anual siempre aplica. PENDIENTE crear la plantilla.
+
 ## 4. PENDIENTES (en orden de urgencia)
 
 - [ ] **Webhook de Meta**: en developers.facebook.com → app → WhatsApp → Configuración → Webhook:
