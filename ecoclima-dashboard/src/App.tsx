@@ -1140,6 +1140,40 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  const generateGoogleMapsRouteUrl = () => {
+    if (optimizedRoute.length === 0) {
+      alert(language === 'es' ? 'No hay rutas asignadas para navegar.' : 'No routes assigned to navigate.');
+      return;
+    }
+    
+    const validPoints = optimizedRoute.filter(stop => stop.latitude && stop.longitude);
+    
+    if (validPoints.length === 0) {
+      alert(language === 'es' ? 'Ningún cliente en la ruta tiene geolocalización válida.' : 'No clients in the route have valid geolocation.');
+      return;
+    }
+
+    if (validPoints.length === 1) {
+      const dest = validPoints[0];
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${dest.latitude},${dest.longitude}&travelmode=driving`, '_blank');
+      return;
+    }
+
+    const origin = validPoints[0];
+    const destination = validPoints[validPoints.length - 1];
+    
+    let url = `https://www.google.com/maps/dir/?api=1&origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&travelmode=driving`;
+    
+    if (validPoints.length > 2) {
+      const waypoints = validPoints.slice(1, validPoints.length - 1)
+        .map(pt => `${pt.latitude},${pt.longitude}`)
+        .join('|');
+      url += `&waypoints=${waypoints}`;
+    }
+    
+    window.open(url, '_blank');
+  };
+
   return (
     <div className="h-screen w-screen flex flex-row overflow-hidden bg-[#060b13] text-slate-100 font-sans relative">
       
@@ -1548,12 +1582,21 @@ export default function App() {
             </div>
 
             <div className="layout-grid-2 items-stretch">
-              {/* Route listing panel */}
               <div className="glass-panel p-6 flex flex-col gap-4">
-                <h3 className="text-white font-semibold flex items-center gap-2">
-                  <Navigation className="h-5 w-5 text-cyan-400" />
-                  {t('lbl_ordered_route_points', 'Puntos de Ruta Ordenados')}
-                </h3>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                  <h3 className="text-white font-semibold flex items-center gap-2">
+                    <Navigation className="h-5 w-5 text-cyan-400" />
+                    {t('lbl_ordered_route_points', 'Puntos de Ruta Ordenados')}
+                  </h3>
+                  <button 
+                    onClick={generateGoogleMapsRouteUrl}
+                    disabled={optimizedRoute.length === 0}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-95"
+                  >
+                    <MapPin className="h-4 w-4" />
+                    {language === 'es' ? 'Abrir Ruta en Maps' : 'Open Route in Maps'}
+                  </button>
+                </div>
                 
                 {optimizedRoute.length === 0 ? (
                   <div className="text-slate-400 text-center py-12 text-sm">{t('lbl_no_geolocations', 'Sin geolocalizaciones registradas.')}</div>

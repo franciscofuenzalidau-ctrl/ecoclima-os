@@ -9,3 +9,23 @@ yarn-error.log*
 ecoclima-os-7ca1b-firebase-adminsdk-fbsvc-*.json
 data_mock/*.json
 !data_mock/config_reglas.json
+
+# Pagina de Devpost guardada localmente (no es parte del producto)
+*.descarga
+*_files/
+saved_resource*
+dQw4w9WgXcQ.html
+m=*
+rs=*
+iframe_api
+destination
+f.txt
+js
+*.gif
+*.jpg
+*.png
+*.svg
+*.css
+!ecoclima-dashboard/**/*.css
+!ecoclima-dashboard/**/*.svg
+!ecoclima-backend/data_mock/*.png
