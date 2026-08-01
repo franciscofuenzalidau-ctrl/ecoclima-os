@@ -1,0 +1,4 @@
+﻿Endpoint: /health
+HTTP: 200
+Response: {"status":"OK","timestamp":"2026-08-01T18:43:58.261Z"}
+Checked at: 2026-08-01 14:43:59 (Chile)

@@ -1,0 +1,223 @@
+﻿{
+    "value":  [
+                  {
+                      "timestamp":  "2026-07-27T18:51:43.399Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Antonio Duce [number redacted], Niebla, Valdivia\" -\u003e Respuesta: \"Gracias por la dirección: Antonio Duce [redacted], Niebla, Valdivia. La usaré para la v...\"",
+                      "tokens_used":  1653,
+                      "latency_ms":  1934
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:49:59.469Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "location_received",
+                      "message":  "Recibió ubicación GPS y resolvió dirección: \"Av. Simpson [number redacted], [postal redacted] Valdivia, Los Ríos, Chile\"",
+                      "tokens_used":  10,
+                      "latency_ms":  500
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:40:24.351Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "location_received",
+                      "message":  "Recibió ubicación GPS y resolvió dirección: \"Av. Simpson [number redacted], [postal redacted] Valdivia, Los Ríos, Chile\"",
+                      "tokens_used":  10,
+                      "latency_ms":  500
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:24:32.391Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"5\" -\u003e Respuesta: \"¡Muchas gracias por tu excelente calificación de 5 estrellas! Nos alegra mucho s...\"",
+                      "tokens_used":  2319,
+                      "latency_ms":  2525
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:20:45.764Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Jueves 25 abril\" -\u003e Respuesta: \"Excelente. Agendaremos tu mantenimiento para el jueves 25 de abril.  Tu solicitu...\"",
+                      "tokens_used":  1900,
+                      "latency_ms":  1907
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:14:44.690Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Orompello [number redacted]\" -\u003e Respuesta: \"Perfecto. Para agendar tu visita de mantenimiento, te ofrezco las siguientes opc...\"",
+                      "tokens_used":  1757,
+                      "latency_ms":  1866
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:14:25.794Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Si funciona bien\" -\u003e Respuesta: \"Gracias por la aclaración. Ahora, por favor, indícame la dirección completa dond...\"",
+                      "tokens_used":  1619,
+                      "latency_ms":  1843
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:14:10.285Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Solo necesito mantecion\" -\u003e Respuesta: \"Comprendo que necesitas mantenimiento. Para nuestros técnicos, es útil saber si ...\"",
+                      "tokens_used":  1722,
+                      "latency_ms":  2860
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:13:51.397Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"El año pasado\" -\u003e Respuesta: \"Entendido. ¿En qué condiciones se encuentra el equipo actualmente? ¿Funciona cor...\"",
+                      "tokens_used":  1438,
+                      "latency_ms":  1504
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:13:33.954Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"1 año\" -\u003e Respuesta: \"Perfecto. ¿Cuándo se le hizo el último mantenimiento a tu equipo?  Si no quieres...\"",
+                      "tokens_used":  1361,
+                      "latency_ms":  1510
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:13:24.210Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"12.000\" -\u003e Respuesta: \"Gracias. Ahora, por favor, indícame la antigüedad aproximada de tu equipo.  Si n...\"",
+                      "tokens_used":  1303,
+                      "latency_ms":  1621
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:13:09.894Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Mantencion\" -\u003e Respuesta: \"Entendido. Para poder ayudarte con el Mantenimiento Preventivo, necesito saber l...\"",
+                      "tokens_used":  1239,
+                      "latency_ms":  1603
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:12:57.833Z",
+                      "phone":  "CUSTOMER_001",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Hola\" -\u003e Respuesta: \"¡Hola! Soy el asistente virtual de Furtz Clima. Estoy aquí para ayudarte con tus...\"",
+                      "tokens_used":  1133,
+                      "latency_ms":  1650
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:08:54.139Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"9.000\" -\u003e Respuesta: \"Gracias.  ¿Cuál es la antigüedad de tu equipo de aire acondicionado?  Si no quie...\"",
+                      "tokens_used":  1303,
+                      "latency_ms":  721
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:08:42.663Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Mantencion\" -\u003e Respuesta: \"Perfecto, has elegido Mantenimiento Preventivo.  Para empezar, ¿cuál es la capac...\"",
+                      "tokens_used":  1243,
+                      "latency_ms":  1772
+                  },
+                  {
+                      "timestamp":  "2026-07-27T18:08:28.051Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Hola\" -\u003e Respuesta: \"¡Hola! Soy tu asistente virtual de Furtz Clima. Estoy aquí para ayudarte con tus...\"",
+                      "tokens_used":  1131,
+                      "latency_ms":  1823
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:26:22.313Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Martes 28 mayo a las 3\" -\u003e Respuesta: \"Perfecto. La mantención para tu equipo de 18.000 BTU se agendará para el **Marte...\"",
+                      "tokens_used":  1974,
+                      "latency_ms":  2135
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:24:37.059Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Antonio Duce [number redacted] niebla. Valdivia\" -\u003e Respuesta: \"Excelente.  Para la visita de mantenimiento, te propongo las siguientes opciones...\"",
+                      "tokens_used":  1928,
+                      "latency_ms":  2852
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:24:01.032Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Solo hace ruido pero funciona\" -\u003e Respuesta: \"Gracias por la información. Para poder programar la visita, por favor, indícame ...\"",
+                      "tokens_used":  1713,
+                      "latency_ms":  2087
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:23:24.197Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"No tiene desde que se instaló\" -\u003e Respuesta: \"Entendido. Por favor, indícame en qué condiciones se encuentra el equipo actualm...\"",
+                      "tokens_used":  1538,
+                      "latency_ms":  1734
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:22:53.298Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Enero 2023\" -\u003e Respuesta: \"Gracias. ¿Cuándo se le hizo el último mantenimiento a tu equipo?  Si no quieres ...\"",
+                      "tokens_used":  1508,
+                      "latency_ms":  1831
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:22:08.491Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Se instaló hace 3 años aprox\" -\u003e Respuesta: \"Perfecto. ¿Podrías indicarme la fecha aproximada de instalación de tu equipo?  S...\"",
+                      "tokens_used":  1390,
+                      "latency_ms":  1765
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:21:18.170Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"18.000\" -\u003e Respuesta: \"Gracias. Ahora, por favor, indícame la antigüedad aproximada de tu equipo.  Si n...\"",
+                      "tokens_used":  1323,
+                      "latency_ms":  921
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:20:41.080Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Mantencion\" -\u003e Respuesta: \"Excelente. Para comenzar con tu solicitud de mantenimiento, ¿podrías indicarme l...\"",
+                      "tokens_used":  1259,
+                      "latency_ms":  1988
+                  },
+                  {
+                      "timestamp":  "2026-07-27T17:20:16.660Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Hola\" -\u003e Respuesta: \"¡Hola! Soy tu asistente virtual de Furtz Clima, encantado de ayudarte.  ¿Qué ser...\"",
+                      "tokens_used":  1235,
+                      "latency_ms":  2227
+                  },
+                  {
+                      "timestamp":  "2026-07-27T15:59:02.618Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "text_message",
+                      "message":  "Mensaje recibido: \"Hola\" -\u003e Respuesta: \"¡Hola! Soy tu asistente virtual de Furtz Clima. Estoy aquí para ayudarte con lo ...\"",
+                      "tokens_used":  874,
+                      "latency_ms":  1830
+                  },
+                  {
+                      "timestamp":  "2026-07-27T15:24:37.081Z",
+                      "phone":  "CUSTOMER_002",
+                      "type":  "error",
+                      "message":  "Error en API Gemini: {\"error\":{\"code\":429,\"message\":\"Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#prepay. \",\"status\":\"RESOURCE_EXHAUSTED\"}}",
+                      "tokens_used":  0,
+                      "latency_ms":  1122
+                  }
+              ],
+    "Count":  27
+}
+
+

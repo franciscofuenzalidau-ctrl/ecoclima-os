@@ -1,0 +1,7 @@
+﻿{
+    "totalCalls":  27,
+    "totalTokens":  35883,
+    "avgLatencyMs":  1727,
+    "successRate":  96,
+    "errorsCount":  1
+}

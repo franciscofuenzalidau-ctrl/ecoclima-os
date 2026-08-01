@@ -1,0 +1,66 @@
+﻿{
+    "value":  [
+                  {
+                      "id":  "CUSTOMER_002",
+                      "appointment_time":  null,
+                      "last_maintenance_date":  null,
+                      "installation_date":  null,
+                      "phone":  "CUSTOMER_002",
+                      "area_m2":  null,
+                      "last_maintenance_info":  null,
+                      "installation_age":  null,
+                      "is_working_correctly":  null,
+                      "service_type":  "maintenance",
+                      "notes":  "Servicio de Mantenimiento / Mantención Preventiva. Valor base de visita técnica: $59.000",
+                      "calculated_btu":  "9.000 BTU",
+                      "status":  "Pendiente",
+                      "address":  "Av. Simpson [number redacted], [postal redacted] Valdivia, Los Ríos, Chile",
+                      "latitude":  -39.8255188,
+                      "created_at":  "2026-07-27T18:51:43.372Z",
+                      "longitude":  -73.2204153,
+                      "technician":  "Francisco"
+                  },
+                  {
+                      "id":  "CUSTOMER_001",
+                      "appointment_time":  null,
+                      "address":  null,
+                      "latitude":  null,
+                      "installation_date":  null,
+                      "last_maintenance_info":  null,
+                      "phone":  "CUSTOMER_001",
+                      "area_m2":  null,
+                      "longitude":  null,
+                      "service_type":  "maintenance",
+                      "calculated_btu":  "12.000 BTU",
+                      "installation_age":  "1 años",
+                      "is_working_correctly":  true,
+                      "notes":  "Servicio de Mantenimiento / Mantención Preventiva. Valor base de visita técnica: $59.000",
+                      "created_at":  "2026-07-27T18:24:32.372Z",
+                      "technician":  "Francisco",
+                      "status":  "Instalado",
+                      "last_maintenance_date":  "2026-07-31T03:28:47.700Z"
+                  },
+                  {
+                      "id":  "CUSTOMER_003",
+                      "appointment_time":  null,
+                      "address":  null,
+                      "notes":  null,
+                      "latitude":  null,
+                      "created_at":  "2026-07-27T01:24:44.101Z",
+                      "calculated_btu":  null,
+                      "last_maintenance_date":  null,
+                      "service_type":  "installation",
+                      "installation_date":  null,
+                      "last_maintenance_info":  null,
+                      "phone":  "CUSTOMER_003",
+                      "area_m2":  null,
+                      "installation_age":  null,
+                      "is_working_correctly":  null,
+                      "longitude":  null,
+                      "status":  "Cancelado"
+                  }
+              ],
+    "Count":  3
+}
+
+
