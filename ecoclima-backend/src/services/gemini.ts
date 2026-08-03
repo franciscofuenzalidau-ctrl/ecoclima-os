@@ -5,6 +5,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { aiLogger } from './aiLogger';
 import { db } from './firebase';
+import { ahoraEnChile, cuposLibres, detectarCupoElegido, etiquetaDeFecha, leerConfigAgenda } from './agenda';
 
 dotenv.config();
 
@@ -55,6 +56,8 @@ interface UserSession {
     installation_age?: string;
     address?: string;
     appointment_time?: string;
+    /** Cupo agendado en formato `YYYY-MM-DDTHH:mm` (hora de Chile). Lo usa el calendario. */
+    appointment_iso?: string;
     latitude?: number;
     longitude?: number;
     area_m2?: number;
@@ -81,7 +84,7 @@ const MAX_STORED_MESSAGES = 60;
 
 // Campos del lead que hay que recuperar desde la base de datos al reiniciar el servidor.
 const HYDRATED_FIELDS = [
-  'service_type', 'installation_age', 'address', 'appointment_time', 'latitude', 'longitude',
+  'service_type', 'installation_age', 'address', 'appointment_time', 'appointment_iso', 'latitude', 'longitude',
   'area_m2', 'calculated_btu', 'notes', 'status', 'last_maintenance_info', 'is_working_correctly',
   'installation_date', 'last_maintenance_date', 'satisfaction_rating', 'satisfaction_comment',
   'client_type', 'contact_phone', 'equipment_count', 'payment_method'
@@ -174,20 +177,21 @@ async function getExistingLead(phone: string): Promise<any> {
   return null;
 }
 
-async function getAllOccupiedTimes(): Promise<string[]> {
-  const occupiedTimes: string[] = [];
+/** Identificadores de cupo ya tomados (`appointment_iso`), para no ofrecerlos dos veces. */
+async function getOccupiedSlotIds(): Promise<string[]> {
+  const ocupados: string[] = [];
   if (db) {
     try {
       const snapshot = await db.collection('leads').get();
       snapshot.forEach(doc => {
         const data = doc.data();
-        if (data && data.appointment_time && data.status !== 'Cancelado') {
-          occupiedTimes.push(`${data.appointment_time} (Técnico: ${data.technician || 'Por definir'})`);
+        if (data && data.appointment_iso && data.status !== 'Cancelado') {
+          ocupados.push(data.appointment_iso);
         }
       });
-      return occupiedTimes;
+      return ocupados;
     } catch (e) {
-      console.error('Error fetching occupied times from Firestore:', e);
+      console.error('Error fetching occupied slots from Firestore:', e);
     }
   }
   try {
@@ -195,15 +199,15 @@ async function getAllOccupiedTimes(): Promise<string[]> {
     if (fs.existsSync(mockLeadsPath)) {
       const mockData = JSON.parse(fs.readFileSync(mockLeadsPath, 'utf8'));
       mockData.forEach((item: any) => {
-        if (item.appointment_time && item.status !== 'Cancelado') {
-          occupiedTimes.push(`${item.appointment_time} (Técnico: ${item.technician || 'Por definir'})`);
+        if (item.appointment_iso && item.status !== 'Cancelado') {
+          ocupados.push(item.appointment_iso);
         }
       });
     }
   } catch (e) {
-    console.error('Error reading occupied times from mock:', e);
+    console.error('Error reading occupied slots from mock:', e);
   }
-  return occupiedTimes;
+  return ocupados;
 }
 
 // Helper to notify Executive Pilar via WhatsApp Cloud API
@@ -373,11 +377,15 @@ export class GeminiService {
     const config = loadConfigRules();
     const salesPhone = config.sales_phone || '56990939188';
 
-    // Load busy times for agenda context
-    const occupiedTimes = await getAllOccupiedTimes();
-    const calendarContext = occupiedTimes.length > 0
-      ? occupiedTimes.map(t => `- ${t}`).join('\n')
-      : 'No hay horarios ocupados actualmente. Toda la agenda está disponible.';
+    // Agenda real: cupos que existen de verdad, en hora de Chile, descontando los tomados.
+    // Antes aquí solo iban los horarios OCUPADOS y nunca se le decía a Gemini qué día era
+    // hoy, así que el modelo inventaba fechas (llegó a ofrecer días de mayo en agosto).
+    const [ocupados, configAgenda] = await Promise.all([getOccupiedSlotIds(), leerConfigAgenda()]);
+    const disponibles = cuposLibres(ocupados, 21, new Date(), configAgenda);
+    const hoyChile = etiquetaDeFecha(ahoraEnChile().date);
+    const calendarContext = disponibles.length > 0
+      ? disponibles.slice(0, 8).map(c => `- ${c.label}`).join('\n')
+      : 'NO HAY CUPOS LIBRES. Deriva al cliente a la ejecutiva.';
 
     // Process normal message with Gemini
     const systemInstruction = `
@@ -425,11 +433,23 @@ REGLAS DE NEGOCIO Y AGENDA:
 
 Si prefieres escribirle tú directamente, acá está su WhatsApp: https://wa.me/56961897021"
 
-4. AGENDA (REVÍSALA SIEMPRE ANTES DE PROPONER O ACEPTAR UNA FECHA). Horarios YA OCUPADOS (NO disponibles):
+4. AGENDA — REGLA CRÍTICA, NO LA ROMPAS NUNCA:
+
+   HOY ES ${hoyChile}. Toda fecha que menciones debe ser posterior a hoy.
+
+   Furtz Clima atiende SOLO de lunes a viernes, y SOLO en dos horarios al día: 09:15 y 14:00.
+   No existe ningún otro horario. No se trabaja sábado ni domingo.
+
+   ESTOS SON LOS ÚNICOS CUPOS LIBRES. No existe ninguno más:
 ${calendarContext}
-   - Para agendar: propone tú 2 o 3 alternativas concretas de día y hora (de lunes a sábado, entre 09:00 y 18:00) que NO choquen con los horarios ocupados de arriba.
-   - Si el cliente propone un horario que coincide con uno ocupado, adviértele amablemente que ya está tomado y ofrécele alternativas libres.
-   - Si no logran coordinar una fecha o hay cualquier problema con la agenda, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE la frase de la regla de SOLICITUD HUMANA.
+
+   - TIENES PROHIBIDO inventar fechas u horarios. Solo puedes ofrecer cupos de la lista de arriba,
+     copiando el día y la hora EXACTAMENTE como aparecen ahí.
+   - Ofrece 2 o 3, siempre los más cercanos de la lista.
+   - Si el cliente pide un día u hora que no está en la lista, explícale amablemente que no hay
+     disponibilidad en ese horario y ofrécele los que sí están.
+   - Si no logran coordinar una fecha, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE
+     la frase de la regla de SOLICITUD HUMANA.
 ${surveyMode ? `
 5. MODO POST-SERVICIO (ACTIVO PARA ESTE CLIENTE):
    - El servicio de este cliente YA FUE COMPLETADO y el sistema ya le envió la pregunta por la FORMA DE PAGO. NO inicies flujos de venta ni mantención salvo que él lo pida explícitamente.
@@ -487,6 +507,15 @@ ${surveyMode ? `
         session.leadData.notes = `[Diagnóstico IA Multimodal]: ${replyText.substring(0, 180).replace(/\n/g, ' ')}...`;
       } else {
         this.extractLeadInfo(message, session.leadData, config);
+
+        // ¿El cliente eligió uno de los cupos que le ofrecimos? Se compara contra la
+        // lista real de disponibles, así nunca queda agendada una fecha que no existe.
+        const elegido = detectarCupoElegido(message, disponibles);
+        if (elegido) {
+          session.leadData.appointment_iso = elegido.id;
+          session.leadData.appointment_time = elegido.label;
+          console.log(`[AGENDA] +${cleanPhone} tomó el cupo ${elegido.id} (${elegido.label}).`);
+        }
       }
 
       // Check for human assistance / derivation trigger
@@ -501,7 +530,8 @@ ${surveyMode ? `
         });
       } else if (session.leadData.service_type === 'maintenance' || session.leadData.service_type === 'installation') {
         const hasAddress = !!session.leadData.address;
-        const hasTime = !!session.leadData.appointment_time;
+        // Solo cuenta como agendado si tomó un cupo real de la agenda.
+        const hasTime = !!session.leadData.appointment_iso;
         
         if (session.leadData.service_type === 'maintenance') {
           // Antigüedad y última mantención ahora se preguntan juntas: basta con capturar una de las dos.
@@ -673,10 +703,8 @@ ${surveyMode ? `
       leadData.is_working_correctly = false;
     }
 
-    // Appointment time (e.g. "lunes a las 10 am", "mañana a las 4")
-    if (textLower.includes('las') && (textLower.includes('am') || textLower.includes('pm') || textLower.includes('hora') || textLower.includes('cita'))) {
-      leadData.appointment_time = text;
-    }
+    // La cita YA NO se adivina desde el texto (antes se guardaba el mensaje entero como
+    // si fuera la hora). Ahora la resuelve detectarCupoElegido contra la agenda real.
 
     // Basic address detection (if it includes street words or specific formats and isn't a coordinate)
     if ((textLower.includes('calle') || textLower.includes('avenida') || textLower.includes('pasaje') || textLower.includes('nro') || textLower.includes('n°')) && !textLower.includes('ubicacion:')) {
@@ -703,6 +731,7 @@ ${surveyMode ? `
           installation_age: leadData.installation_age || null,
           address: leadData.address || null,
           appointment_time: leadData.appointment_time || null,
+          appointment_iso: leadData.appointment_iso || null,
           latitude: leadData.latitude || null,
           longitude: leadData.longitude || null,
           area_m2: leadData.area_m2 || null,
@@ -745,6 +774,7 @@ ${surveyMode ? `
         installation_age: leadData.installation_age || null,
         address: leadData.address || null,
         appointment_time: leadData.appointment_time || null,
+        appointment_iso: leadData.appointment_iso || null,
         latitude: leadData.latitude || null,
         longitude: leadData.longitude || null,
         area_m2: leadData.area_m2 || null,

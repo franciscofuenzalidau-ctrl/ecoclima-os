@@ -5,6 +5,10 @@ import nodemailer from 'nodemailer';
 import axios from 'axios';
 import { db } from '../services/firebase';
 import { clearSession } from '../services/gemini';
+import {
+  cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
+  leerConfigAgenda, guardarConfigAgenda
+} from '../services/agenda';
 
 const router = Router();
 
@@ -215,6 +219,7 @@ router.get('/', async (req: Request, res: Response) => {
           installation_age: item.installation_age !== undefined ? item.installation_age : null,
           address: item.address !== undefined ? item.address : null,
           appointment_time: item.appointment_time !== undefined ? item.appointment_time : null,
+          appointment_iso: item.appointment_iso !== undefined ? item.appointment_iso : null,
           latitude: item.latitude !== undefined ? item.latitude : null,
           longitude: item.longitude !== undefined ? item.longitude : null,
           area_m2: item.area_m2 !== undefined ? item.area_m2 : null,
@@ -299,6 +304,238 @@ router.put('/:phone', async (req: Request, res: Response) => {
       });
     }
     res.status(200).json({ success: true, message: 'Lead actualizado con éxito (local mock).' });
+  }
+});
+
+/** Todos los leads, desde Firestore o del respaldo local. */
+async function cargarLeads(): Promise<any[]> {
+  if (db) {
+    try {
+      const snapshot = await db.collection('leads').get();
+      const leads: any[] = [];
+      snapshot.forEach(doc => leads.push({ id: doc.id, ...doc.data() }));
+      return leads;
+    } catch (e: any) {
+      console.warn('Agenda: fallback al respaldo local -', e.message);
+    }
+  }
+  try {
+    const mockLeadsPath = path.resolve(process.cwd(), 'data_mock', 'clientes_leads.json');
+    if (fs.existsSync(mockLeadsPath)) {
+      return JSON.parse(fs.readFileSync(mockLeadsPath, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Agenda: no se pudo leer el respaldo local:', e);
+  }
+  return [];
+}
+
+// GET /api/leads/agenda - Calendario para el dashboard.
+// Devuelve los cupos reales (lunes a viernes, 09:15 y 14:00) con quién los tiene tomados.
+router.get('/agenda', async (req: Request, res: Response) => {
+  try {
+    const dias = Math.min(Math.max(parseInt(String(req.query.dias || '28'), 10) || 28, 7), 120);
+    const [leads, config] = await Promise.all([cargarLeads(), leerConfigAgenda()]);
+
+    const porCupo = new Map<string, any>();
+    for (const lead of leads) {
+      if (lead.appointment_iso && lead.status !== 'Cancelado') {
+        porCupo.set(lead.appointment_iso, lead);
+      }
+    }
+
+    const reservas = new Map(config.reservas.map(r => [r.id, r.motivo]));
+    const extras = new Set(config.extras);
+
+    const cupos = cuposDelPeriodo(dias, new Date(), config).map(cupo => {
+      const lead = porCupo.get(cupo.id);
+      return {
+        ...cupo,
+        ocupado: !!lead,
+        esExtra: extras.has(cupo.id),
+        reservado: reservas.has(cupo.id),
+        motivoReserva: reservas.get(cupo.id) || null,
+        lead: lead
+          ? {
+              phone: lead.phone,
+              client_name: lead.client_name || null,
+              service_type: lead.service_type || null,
+              status: lead.status || 'Pendiente',
+              technician: lead.technician || '',
+              address: lead.address || null
+            }
+          : null
+      };
+    });
+
+    // Citas que quedaron fuera del período mostrado o en horarios que ya no existen.
+    const idsDelPeriodo = new Set(cupos.map(c => c.id));
+    const fueraDeAgenda = [...porCupo.entries()]
+      .filter(([id]) => !idsDelPeriodo.has(id))
+      .map(([id, lead]) => ({ id, phone: lead.phone, status: lead.status || 'Pendiente' }));
+
+    return res.status(200).json({
+      hoy: ahoraEnChile().date,
+      horarios: SLOT_TIMES,
+      cupos,
+      fueraDeAgenda
+    });
+  } catch (error: any) {
+    console.error('Error armando la agenda:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/leads/agenda/cupo - Pilar agrega un horario extra fuera de los dos base.
+// Body: { date: "YYYY-MM-DD", time: "HH:mm" }
+router.post('/agenda/cupo', async (req: Request, res: Response) => {
+  const { date, time } = req.body || {};
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !/^\d{2}:\d{2}$/.test(String(time))) {
+    return res.status(400).json({ error: 'Fecha u hora con formato inválido.' });
+  }
+  if (date < ahoraEnChile().date) {
+    return res.status(400).json({ error: 'No se pueden agregar horarios en el pasado.' });
+  }
+
+  const id = `${date}T${time}`;
+  const config = await leerConfigAgenda();
+
+  // Si ya es un horario base de un día hábil, no hace falta agregarlo.
+  if (esDiaHabil(date) && (SLOT_TIMES as readonly string[]).includes(time)) {
+    return res.status(409).json({ error: 'Ese horario ya existe en la agenda normal.' });
+  }
+  if (config.extras.includes(id)) {
+    return res.status(409).json({ error: 'Ese horario ya estaba agregado.' });
+  }
+
+  config.extras.push(id);
+  // Agregar un horario lo desbloquea si estaba reservado.
+  config.reservas = config.reservas.filter(r => r.id !== id);
+  await guardarConfigAgenda(config);
+
+  console.log(`[AGENDA] Horario extra agregado: ${id}`);
+  return res.status(201).json({ success: true, cupo: construirCupo(date, time) });
+});
+
+// DELETE /api/leads/agenda/cupo/:slotId - Quitar un horario extra.
+router.delete('/agenda/cupo/:slotId', async (req: Request, res: Response) => {
+  const slotId = req.params.slotId;
+  const config = await leerConfigAgenda();
+
+  if (!config.extras.includes(slotId)) {
+    return res.status(404).json({ error: 'Ese horario extra no existe.' });
+  }
+
+  const leads = await cargarLeads();
+  const ocupado = leads.find(l => l.appointment_iso === slotId && l.status !== 'Cancelado');
+  if (ocupado) {
+    return res.status(409).json({ error: `No se puede quitar: lo tiene +${ocupado.phone}.` });
+  }
+
+  config.extras = config.extras.filter(id => id !== slotId);
+  await guardarConfigAgenda(config);
+  return res.status(200).json({ success: true });
+});
+
+// POST /api/leads/agenda/reserva - Pilar aparta un cupo con anticipación.
+// El bot deja de ofrecerlo. Body: { slotId, motivo }
+router.post('/agenda/reserva', async (req: Request, res: Response) => {
+  const { slotId, motivo } = req.body || {};
+
+  if (typeof slotId !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(slotId)) {
+    return res.status(400).json({ error: 'Cupo inválido.' });
+  }
+
+  const leads = await cargarLeads();
+  const ocupado = leads.find(l => l.appointment_iso === slotId && l.status !== 'Cancelado');
+  if (ocupado) {
+    return res.status(409).json({ error: `Ese cupo ya lo tiene el cliente +${ocupado.phone}.` });
+  }
+
+  const config = await leerConfigAgenda();
+  config.reservas = config.reservas.filter(r => r.id !== slotId);
+  config.reservas.push({ id: slotId, motivo: String(motivo || '').slice(0, 120) });
+  await guardarConfigAgenda(config);
+
+  console.log(`[AGENDA] Cupo reservado por Pilar: ${slotId} (${motivo || 'sin motivo'})`);
+  return res.status(201).json({ success: true });
+});
+
+// DELETE /api/leads/agenda/reserva/:slotId - Soltar un cupo reservado.
+router.delete('/agenda/reserva/:slotId', async (req: Request, res: Response) => {
+  const config = await leerConfigAgenda();
+  const antes = config.reservas.length;
+  config.reservas = config.reservas.filter(r => r.id !== req.params.slotId);
+
+  if (config.reservas.length === antes) {
+    return res.status(404).json({ error: 'Ese cupo no estaba reservado.' });
+  }
+
+  await guardarConfigAgenda(config);
+  return res.status(200).json({ success: true });
+});
+
+// PUT /api/leads/:phone/appointment - Mover o liberar la cita de un cliente.
+// Body: { slotId: "YYYY-MM-DDTHH:mm" } para mover, o { slotId: null } para liberar.
+router.put('/:phone/appointment', async (req: Request, res: Response) => {
+  const cleanPhone = (req.params.phone || '').replace(/\D/g, '');
+  const { slotId } = req.body || {};
+
+  if (!cleanPhone) {
+    return res.status(400).json({ error: 'Número de teléfono inválido.' });
+  }
+
+  let update: any;
+
+  if (slotId === null || slotId === '') {
+    update = { appointment_iso: null, appointment_time: null };
+  } else {
+    if (typeof slotId !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(slotId)) {
+      return res.status(400).json({ error: 'Formato de cupo inválido.' });
+    }
+
+    const [fecha, hora] = slotId.split('T');
+    const config = await leerConfigAgenda();
+
+    // El cupo tiene que existir de verdad: horario base de día hábil, o extra agregado.
+    const existe = cuposDelPeriodo(120, new Date(), config).some(c => c.id === slotId);
+    if (!existe) {
+      const motivo = !esDiaHabil(fecha)
+        ? 'Solo se atiende de lunes a viernes.'
+        : !(SLOT_TIMES as readonly string[]).includes(hora)
+          ? `Solo existen los horarios ${SLOT_TIMES.join(' y ')}, salvo que agregues ese horario a la agenda.`
+          : 'Ese cupo ya pasó o está fuera del rango.';
+      return res.status(400).json({ error: motivo });
+    }
+
+    if (config.reservas.some(r => r.id === slotId)) {
+      return res.status(409).json({ error: 'Ese cupo está reservado. Suéltalo primero si quieres usarlo.' });
+    }
+
+    // No permitir dos clientes en el mismo cupo.
+    const leads = await cargarLeads();
+    const chocaCon = leads.find(
+      l => l.appointment_iso === slotId && l.status !== 'Cancelado' && l.phone !== cleanPhone
+    );
+    if (chocaCon) {
+      return res.status(409).json({ error: `Ese cupo ya lo tiene +${chocaCon.phone}.` });
+    }
+
+    const cupo = construirCupo(fecha, hora);
+    update = { appointment_iso: cupo.id, appointment_time: cupo.label };
+  }
+
+  try {
+    if (db) {
+      await db.collection('leads').doc(cleanPhone).update(update);
+    }
+    updateLocalMock(cleanPhone, update);
+    console.log(`[AGENDA] Cita de +${cleanPhone} -> ${update.appointment_iso || 'liberada'}`);
+    return res.status(200).json({ success: true, ...update });
+  } catch (error: any) {
+    console.error('Error moviendo la cita:', error.message);
+    return res.status(500).json({ error: error.message });
   }
 });
 

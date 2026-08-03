@@ -63,6 +63,46 @@ const TECHNICIAN_PHONES: Record<string, string> = {
   francisco: '56990939188'
 };
 
+// --- Agenda -----------------------------------------------------------------
+// Solo existen dos cupos por día, de lunes a viernes. El backend es la autoridad:
+// aquí nunca se inventan fechas, se dibuja lo que devuelve /api/leads/agenda.
+
+interface AgendaSlot {
+  id: string;          // "YYYY-MM-DDTHH:mm" en hora de Chile
+  label: string;       // "lunes 4 de agosto a las 09:15"
+  date: string;
+  time: string;
+  ocupado: boolean;
+  esExtra: boolean;        // horario agregado a mano por Pilar
+  reservado: boolean;      // apartado por Pilar, el bot no lo ofrece
+  motivoReserva: string | null;
+  lead: {
+    phone: string;
+    client_name?: string | null;
+    service_type: 'installation' | 'maintenance' | null;
+    status: string;
+    technician: string;
+    address?: string | null;
+  } | null;
+}
+
+interface AgendaResponse {
+  hoy: string;
+  horarios: string[];
+  cupos: AgendaSlot[];
+  fueraDeAgenda: Array<{ id: string; phone: string; status: string }>;
+}
+
+const DIAS_CORTOS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/** Encabezado de una columna del calendario: "Lun 4 ago". */
+const tituloDeDia = (fecha: string) => {
+  const [y, m, d] = fecha.split('-').map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return `${DIAS_CORTOS[dow]} ${d} ${MESES_CORTOS[m - 1]}`;
+};
+
 const getBackendUrl = () => {
   const host = window.location.hostname;
   const port = window.location.port;
@@ -659,6 +699,12 @@ export default function App() {
   const [chatLead, setChatLead] = useState<Lead | null>(null);
   const [sendingSurveyTo, setSendingSurveyTo] = useState<string | null>(null);
   const [deletingPhone, setDeletingPhone] = useState<string | null>(null);
+  // Agenda: cupos reales (lun-vie, 09:15 y 14:00) y la cita que Pilar está moviendo.
+  const [agenda, setAgenda] = useState<AgendaResponse | null>(null);
+  const [semana, setSemana] = useState<number>(0);
+  const [moviendo, setMoviendo] = useState<AgendaSlot | null>(null);
+  const [guardandoCita, setGuardandoCita] = useState<boolean>(false);
+  const [agendaAbierta, setAgendaAbierta] = useState<boolean>(true);
   const [showAddClientModal, setShowAddClientModal] = useState<boolean>(false);
   const [newClientName, setNewClientName] = useState<string>('');
   const [newClientPhone, setNewClientPhone] = useState<string>('');
@@ -1070,6 +1116,7 @@ export default function App() {
     fetchAICenterData();
     fetchFinancials();
     fetchPricingConfig();
+    fetchAgenda();
 
     // Poll AI metrics every 3 seconds for a real-time console experience
     const interval = setInterval(() => {
@@ -1145,6 +1192,111 @@ export default function App() {
       alert('No se pudo contactar al servidor para enviar el mensaje.');
     } finally {
       setSendingSurveyTo(null);
+    }
+  };
+
+  const fetchAgenda = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/agenda?dias=42`);
+      if (res.ok) setAgenda(await res.json());
+    } catch (error) {
+      console.error('Error cargando la agenda:', error);
+    }
+  };
+
+  // Reserva un cupo para que el bot deje de ofrecerlo, o lo suelta.
+  const reservarCupo = async (cupo: AgendaSlot) => {
+    const motivo = window.prompt(
+      `Reservar ${cupo.label}\n\nEl bot dejará de ofrecer este cupo.\n\n¿Para qué lo apartas? (opcional)`,
+      ''
+    );
+    if (motivo === null) return;
+
+    setGuardandoCita(true);
+    try {
+      const res = await fetch(`${API_BASE}/agenda/reserva`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId: cupo.id, motivo })
+      });
+      if (res.ok) await fetchAgenda();
+      else alert((await res.json().catch(() => ({}))).error || 'No se pudo reservar.');
+    } finally {
+      setGuardandoCita(false);
+    }
+  };
+
+  const soltarReserva = async (cupo: AgendaSlot) => {
+    setGuardandoCita(true);
+    try {
+      const res = await fetch(`${API_BASE}/agenda/reserva/${cupo.id}`, { method: 'DELETE' });
+      if (res.ok) await fetchAgenda();
+      else alert((await res.json().catch(() => ({}))).error || 'No se pudo soltar la reserva.');
+    } finally {
+      setGuardandoCita(false);
+    }
+  };
+
+  // Agrega un horario extra a un día, fuera de los dos base.
+  const agregarHorario = async (fecha: string) => {
+    const hora = window.prompt(
+      `Agregar un horario extra al ${tituloDeDia(fecha)}\n\nEscríbelo en formato 24 horas, por ejemplo 16:30`,
+      '16:00'
+    );
+    if (!hora) return;
+    if (!/^\d{1,2}:\d{2}$/.test(hora.trim())) {
+      alert('El formato debe ser HH:mm, por ejemplo 16:30');
+      return;
+    }
+    const normalizada = hora.trim().padStart(5, '0');
+
+    setGuardandoCita(true);
+    try {
+      const res = await fetch(`${API_BASE}/agenda/cupo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: fecha, time: normalizada })
+      });
+      if (res.ok) await fetchAgenda();
+      else alert((await res.json().catch(() => ({}))).error || 'No se pudo agregar el horario.');
+    } finally {
+      setGuardandoCita(false);
+    }
+  };
+
+  const quitarHorario = async (cupo: AgendaSlot) => {
+    if (!window.confirm(`¿Quitar el horario extra de ${cupo.label}?`)) return;
+    setGuardandoCita(true);
+    try {
+      const res = await fetch(`${API_BASE}/agenda/cupo/${cupo.id}`, { method: 'DELETE' });
+      if (res.ok) await fetchAgenda();
+      else alert((await res.json().catch(() => ({}))).error || 'No se pudo quitar el horario.');
+    } finally {
+      setGuardandoCita(false);
+    }
+  };
+
+  // Mueve la cita de un cliente a otro cupo, o la libera pasando destino = null.
+  const moverCita = async (phone: string, destino: string | null) => {
+    setGuardandoCita(true);
+    try {
+      const res = await fetch(`${API_BASE}/${phone}/appointment`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId: destino })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setMoviendo(null);
+        await Promise.all([fetchAgenda(), fetchLeads()]);
+      } else {
+        alert(data.error || 'No se pudo mover la cita.');
+      }
+    } catch (error) {
+      console.error('Error moviendo la cita:', error);
+      alert('No se pudo contactar al servidor.');
+    } finally {
+      setGuardandoCita(false);
     }
   };
 
@@ -1772,6 +1924,225 @@ export default function App() {
                 {t('title_leads', 'Control Operativo de Clientes')}
               </h2>
               <p className="text-slate-200 text-sm mt-1 font-medium">{t('desc_leads', 'Gestión directa de visitas técnicas, asignación y estado de servicios')}</p>
+            </div>
+
+            {/* ------------------------- Agenda semanal ------------------------- */}
+            <div className="glass-panel p-6 flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  onClick={() => setAgendaAbierta(a => !a)}
+                  className="flex items-center gap-2 text-left group"
+                >
+                  <span className={`text-slate-400 group-hover:text-cyan-300 transition-transform duration-200 ${agendaAbierta ? 'rotate-90' : ''}`}>
+                    ▶
+                  </span>
+                  <div>
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-cyan-400" />
+                      {t('title_agenda', 'Agenda')}
+                      {agenda && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          {agenda.cupos.filter(c => c.ocupado).length} {t('lbl_booked', 'con cita')}
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {t('desc_agenda', 'Lunes a viernes · 09:15 y 14:00 · el bot solo ofrece los cupos libres')}
+                    </p>
+                  </div>
+                </button>
+
+                <div className={`flex items-center gap-2 ${agendaAbierta ? '' : 'hidden'}`}>
+                  <button
+                    onClick={() => setSemana(s => Math.max(0, s - 1))}
+                    disabled={semana === 0}
+                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-bold text-slate-300 hover:bg-white/10 transition disabled:opacity-30"
+                  >
+                    ← {t('lbl_prev_week', 'Anterior')}
+                  </button>
+                  <span className="text-xs text-slate-400 font-semibold min-w-[80px] text-center">
+                    {semana === 0 ? t('lbl_this_week', 'Esta semana') : `+${semana} ${t('lbl_weeks', 'sem')}`}
+                  </span>
+                  <button
+                    onClick={() => setSemana(s => Math.min(5, s + 1))}
+                    disabled={semana >= 5}
+                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-bold text-slate-300 hover:bg-white/10 transition disabled:opacity-30"
+                  >
+                    {t('lbl_next_week', 'Siguiente')} →
+                  </button>
+                </div>
+              </div>
+
+              {moviendo && agendaAbierta && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                  <span className="text-xs text-amber-200 font-semibold">
+                    {t('lbl_moving', 'Moviendo la cita de')} +{moviendo.lead?.phone} — {t('lbl_pick_slot', 'elige el cupo libre de destino')}
+                  </span>
+                  <button
+                    onClick={() => setMoviendo(null)}
+                    className="text-xs font-bold text-slate-300 hover:text-white px-2 py-1"
+                  >
+                    {t('lbl_cancel', 'Cancelar')}
+                  </button>
+                </div>
+              )}
+
+              {!agendaAbierta ? null : !agenda ? (
+                <div className="text-center text-slate-400 text-sm py-8">
+                  <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+                  {t('lbl_loading_agenda', 'Cargando la agenda...')}
+                </div>
+              ) : (
+                (() => {
+                  const fechas = [...new Set(agenda.cupos.map(c => c.date))];
+                  const semanaActual = fechas.slice(semana * 5, semana * 5 + 5);
+
+                  if (semanaActual.length === 0) {
+                    return (
+                      <div className="text-center text-slate-400 text-sm py-8 italic">
+                        {t('lbl_no_slots', 'No hay más cupos en este rango.')}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <div className="grid grid-cols-5 gap-2 min-w-[640px]">
+                        {semanaActual.map(fecha => (
+                          <div key={fecha} className="flex flex-col gap-2">
+                            <div className={`text-center text-xs font-bold py-1.5 rounded-lg ${
+                              fecha === agenda.hoy
+                                ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-500/40'
+                                : 'text-slate-400'
+                            }`}>
+                              {tituloDeDia(fecha)}
+                              {fecha === agenda.hoy && <span className="block text-[9px] opacity-80">{t('lbl_today', 'HOY')}</span>}
+                            </div>
+
+                            {agenda.cupos.filter(c => c.date === fecha).map(cupo => (
+                              cupo.ocupado && cupo.lead ? (
+                                <div
+                                  key={cupo.id}
+                                  className="p-2 rounded-xl bg-emerald-500/12 border border-emerald-500/30 flex flex-col gap-1"
+                                >
+                                  <div className="text-[11px] font-extrabold text-emerald-300">{cupo.time}</div>
+                                  <div className="text-[11px] text-slate-100 font-semibold truncate" title={`+${cupo.lead.phone}`}>
+                                    +{cupo.lead.phone}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 truncate">
+                                    {cupo.lead.service_type === 'installation' ? 'Instalación' : 'Mantención'}
+                                    {cupo.lead.technician ? ` · ${cupo.lead.technician}` : ''}
+                                  </div>
+                                  <div className="flex gap-1 mt-0.5">
+                                    <button
+                                      onClick={() => setMoviendo(cupo)}
+                                      disabled={guardandoCita}
+                                      className="flex-1 text-[10px] font-bold py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/15 transition disabled:opacity-40"
+                                    >
+                                      {t('lbl_move', 'Mover')}
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (window.confirm(`¿Liberar el cupo de +${cupo.lead!.phone} (${cupo.label})?\n\nEl cliente queda sin cita agendada.`)) {
+                                          moverCita(cupo.lead!.phone, null);
+                                        }
+                                      }}
+                                      disabled={guardandoCita}
+                                      className="flex-1 text-[10px] font-bold py-1 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 hover:bg-rose-500/25 transition disabled:opacity-40"
+                                    >
+                                      {t('lbl_free', 'Liberar')}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : cupo.reservado ? (
+                                <div
+                                  key={cupo.id}
+                                  className="p-2 rounded-xl bg-purple-500/12 border border-purple-500/30 flex flex-col gap-1"
+                                >
+                                  <div className="text-[11px] font-extrabold text-purple-300 flex items-center gap-1">
+                                    <Lock className="h-3 w-3" /> {cupo.time}
+                                  </div>
+                                  <div className="text-[10px] text-purple-200/90 truncate" title={cupo.motivoReserva || ''}>
+                                    {cupo.motivoReserva || t('lbl_reserved', 'Reservado')}
+                                  </div>
+                                  <button
+                                    onClick={() => soltarReserva(cupo)}
+                                    disabled={guardandoCita}
+                                    className="text-[10px] font-bold py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/15 transition disabled:opacity-40"
+                                  >
+                                    {t('lbl_release', 'Soltar')}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div
+                                  key={cupo.id}
+                                  className={`p-2 rounded-xl border flex flex-col gap-1 transition ${
+                                    moviendo
+                                      ? 'bg-amber-500/10 border-amber-500/40'
+                                      : cupo.esExtra
+                                        ? 'bg-cyan-500/[0.06] border-cyan-500/20'
+                                        : 'bg-white/[0.03] border-white/8'
+                                  }`}
+                                >
+                                  <div className={`text-[11px] font-extrabold flex items-center justify-between ${
+                                    moviendo ? 'text-amber-200' : cupo.esExtra ? 'text-cyan-300' : 'text-slate-500'
+                                  }`}>
+                                    <span>{cupo.time}{cupo.esExtra && ' +'}</span>
+                                    {cupo.esExtra && !moviendo && (
+                                      <button
+                                        onClick={() => quitarHorario(cupo)}
+                                        disabled={guardandoCita}
+                                        className="text-slate-500 hover:text-rose-400 transition disabled:opacity-40"
+                                        title={t('tip_remove_slot', 'Quitar este horario extra')}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {moviendo ? (
+                                    <button
+                                      onClick={() => moverCita(moviendo.lead!.phone, cupo.id)}
+                                      disabled={guardandoCita}
+                                      className="text-[10px] font-bold py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-100 hover:bg-amber-500/35 transition disabled:opacity-40"
+                                    >
+                                      {t('lbl_put_here', 'Poner aquí')}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => reservarCupo(cupo)}
+                                      disabled={guardandoCita}
+                                      className="text-[10px] font-semibold py-1 rounded-lg text-slate-500 hover:text-purple-300 hover:bg-purple-500/15 transition disabled:opacity-40"
+                                    >
+                                      {t('lbl_reserve', 'Reservar')}
+                                    </button>
+                                  )}
+                                </div>
+                              )
+                            ))}
+
+                            <button
+                              onClick={() => agregarHorario(fecha)}
+                              disabled={guardandoCita}
+                              className="text-[10px] font-bold py-1.5 rounded-xl border border-dashed border-white/15 text-slate-500 hover:text-cyan-300 hover:border-cyan-500/40 transition disabled:opacity-40"
+                              title={t('tip_add_slot', 'Agregar un horario extra a este día')}
+                            >
+                              + {t('lbl_add_slot', 'horario')}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+
+              {agendaAbierta && agenda && agenda.fueraDeAgenda.length > 0 && (
+                <div className="text-[11px] text-amber-300/90 bg-amber-500/8 border border-amber-500/20 rounded-lg p-2.5">
+                  ⚠️ {agenda.fueraDeAgenda.length} {t('warn_out_of_range', 'cita(s) fuera del rango mostrado')}:{' '}
+                  {agenda.fueraDeAgenda.map(c => `+${c.phone} (${c.id.replace('T', ' ')})`).join(' · ')}
+                </div>
+              )}
             </div>
 
             <div className="glass-panel p-6 flex flex-col gap-6">
