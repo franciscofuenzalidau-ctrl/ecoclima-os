@@ -24,7 +24,10 @@ import {
   DollarSign,
   Plus,
   Settings,
-  Save
+  Save,
+  MessageSquare,
+  Star,
+  Trash2
 } from 'lucide-react';
 
 interface Lead {
@@ -44,7 +47,21 @@ interface Lead {
   technician?: string;
   technical_notes?: string;
   notes?: string;
+  client_type?: 'empresa' | 'particular' | null;
+  contact_phone?: string;
+  equipment_count?: number;
+  payment_method?: string;
+  satisfaction_rating?: number;
+  satisfaction_comment?: string;
+  conversation?: Array<{ role: 'user' | 'model'; text: string }>;
+  last_message_at?: string;
 }
+
+// Teléfonos de técnicos con número REAL verificado. No agregar números de relleno:
+// si el técnico no está aquí, simplemente no se muestra el botón de WhatsApp.
+const TECHNICIAN_PHONES: Record<string, string> = {
+  francisco: '56990939188'
+};
 
 const getBackendUrl = () => {
   const host = window.location.hostname;
@@ -638,6 +655,10 @@ export default function App() {
 
   // Add Client modal states
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
+  // Conversación que se está mirando en el modal de chat, y teléfono al que se le está enviando la encuesta.
+  const [chatLead, setChatLead] = useState<Lead | null>(null);
+  const [sendingSurveyTo, setSendingSurveyTo] = useState<string | null>(null);
+  const [deletingPhone, setDeletingPhone] = useState<string | null>(null);
   const [showAddClientModal, setShowAddClientModal] = useState<boolean>(false);
   const [newClientName, setNewClientName] = useState<string>('');
   const [newClientPhone, setNewClientPhone] = useState<string>('');
@@ -1059,6 +1080,13 @@ export default function App() {
   }, []);
 
   const handleStatusChange = async (phone: string, newStatus: string) => {
+    // "Enviar encuesta" no es un estado, es una acción dentro del mismo desplegable:
+    // manda el mensaje por el bot y deja al cliente inscrito en el recordatorio anual.
+    if (newStatus === '__send_survey') {
+      await handleSendSurvey(phone);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/${phone}`, {
         method: 'PUT',
@@ -1093,8 +1121,66 @@ export default function App() {
     }
   };
 
+  // Envía a mano el mensaje post-servicio (forma de pago + encuesta) a través del bot.
+  const handleSendSurvey = async (phone: string) => {
+    setSendingSurveyTo(phone);
+    try {
+      const res = await fetch(`${API_BASE}/${phone}/send-survey`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        alert(
+          'Encuesta enviada al cliente por WhatsApp.' +
+          (data.reminderRegistered
+            ? '\n\nAdemás quedó inscrito para el recordatorio automático de mantención dentro de 1 año.'
+            : '\n\nEl cliente ya estaba inscrito en el recordatorio anual de mantención.')
+        );
+        fetchLeads();
+      } else {
+        alert(
+          `No se pudo enviar.\n\n${data.error || 'Error desconocido'}\n\n${data.hint || ''}`
+        );
+      }
+    } catch (error) {
+      console.error('Error enviando la encuesta:', error);
+      alert('No se pudo contactar al servidor para enviar el mensaje.');
+    } finally {
+      setSendingSurveyTo(null);
+    }
+  };
+
+  // Elimina una ficha completa. Pensado para limpiar los chats de prueba hechos con
+  // números propios. Pide confirmación porque no hay vuelta atrás.
+  const handleDeleteLead = async (lead: Lead) => {
+    const mensajes = lead.conversation?.length || 0;
+    const confirmado = window.confirm(
+      `¿Eliminar definitivamente la ficha de +${lead.phone}?\n\n` +
+      `Se borra el cliente, su estado, sus notas` +
+      (mensajes > 0 ? ` y los ${mensajes} mensajes de su conversación` : '') +
+      `.\n\nEsto NO se puede deshacer.`
+    );
+    if (!confirmado) return;
+
+    setDeletingPhone(lead.phone);
+    try {
+      const res = await fetch(`${API_BASE}/${lead.phone}`, { method: 'DELETE' });
+      if (res.ok) {
+        setLeads(prev => prev.filter(l => l.phone !== lead.phone));
+        if (chatLead?.phone === lead.phone) setChatLead(null);
+        fetchRouteOptimization();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(`No se pudo eliminar.\n\n${data.error || 'Error desconocido'}`);
+      }
+    } catch (error) {
+      console.error('Error eliminando la ficha:', error);
+      alert('No se pudo contactar al servidor para eliminar la ficha.');
+    } finally {
+      setDeletingPhone(null);
+    }
+  };
+
   const filteredLeads = leads.filter(lead => {
-    const matchesSearch = 
+    const matchesSearch =
       lead.phone.includes(searchQuery) || 
       (lead.address && lead.address.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (lead.technician && lead.technician.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -1840,12 +1926,10 @@ export default function App() {
                                 onChange={(e) => handleTechnicianChange(lead.phone, e.target.value)}
                                 className="tech-input-field"
                               />
-                              {lead.technician && (
+                              {lead.technician && TECHNICIAN_PHONES[lead.technician.toLowerCase().trim()] && (
                                 <a
                                   href={`https://wa.me/${
-                                    lead.technician.toLowerCase().trim() === 'francisco' ? '56990939188' :
-                                    lead.technician.toLowerCase().trim() === 'felipe' ? '56911112222' :
-                                    lead.technician.toLowerCase().trim() === 'juan' ? '56933334444' : ''
+                                    TECHNICIAN_PHONES[lead.technician.toLowerCase().trim()]
                                   }?text=${encodeURIComponent(
                                     `Hola ${lead.technician}, se te ha asignado una nueva visita técnica en Furtz Clima OS:\n\n` +
                                     `📞 Cliente: +${lead.phone}\n` +
@@ -1867,18 +1951,63 @@ export default function App() {
                             </div>
                           </td>
                           <td className="py-4 pr-4 text-right">
-                            <select
-                              value={lead.status || 'Pendiente'}
-                              onChange={(e) => handleStatusChange(lead.phone, e.target.value)}
-                              className={`status-dropdown status-select-${(lead.status || 'Pendiente').toLowerCase()}`}
-                            >
-                              <option value="Pendiente">{t('status_pending', 'Pendiente')}</option>
-                              <option value="Evaluado">{t('status_evaluated', 'Evaluado')}</option>
-                              <option value="Instalado">{t('status_installed', 'Instalado')}</option>
-                              <option value="Cancelado">{t('status_cancelled', 'Cancelado')}</option>
-                              <option value="pendiente_revision">{t('status_pendiente_revision', 'Pendiente de Revisión')}</option>
-                              <option value="derivado_ventas">{t('status_derivado_ventas', 'Derivado a Ventas')}</option>
-                            </select>
+                            <div className="flex flex-col items-end gap-2">
+                              <select
+                                value={lead.status || 'Pendiente'}
+                                onChange={(e) => handleStatusChange(lead.phone, e.target.value)}
+                                className={`status-dropdown status-select-${(lead.status || 'Pendiente').toLowerCase()}`}
+                              >
+                                <option value="Pendiente">{t('status_pending', 'Pendiente')}</option>
+                                <option value="Evaluado">{t('status_evaluated', 'Evaluado')}</option>
+                                <option value="Instalado">{t('status_installed', 'Instalado')}</option>
+                                <option value="Cancelado">{t('status_cancelled', 'Cancelado')}</option>
+                                <option value="pendiente_revision">{t('status_pendiente_revision', 'Pendiente de Revisión')}</option>
+                                <option value="derivado_ventas">{t('status_derivado_ventas', 'Derivado a Ventas')}</option>
+                                <option disabled>──────────</option>
+                                <option value="__send_survey">⭐ {t('opt_send_survey', 'Enviar encuesta de satisfacción')}</option>
+                              </select>
+
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setChatLead(lead)}
+                                  className="relative flex items-center justify-center h-8 w-8 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/30 transition active:scale-95"
+                                  title={t('tip_view_chat', 'Ver la conversación con el cliente')}
+                                >
+                                  <MessageSquare className="h-4 w-4" />
+                                  {lead.conversation && lead.conversation.length > 0 && (
+                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-cyan-400 text-[9px] font-bold text-slate-900 flex items-center justify-center">
+                                      {lead.conversation.length}
+                                    </span>
+                                  )}
+                                </button>
+
+                                <button
+                                  onClick={() => handleSendSurvey(lead.phone)}
+                                  disabled={sendingSurveyTo === lead.phone}
+                                  className={`flex items-center justify-center h-8 w-8 rounded-xl border transition active:scale-95 ${
+                                    lead.satisfaction_rating
+                                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                                      : 'bg-slate-500/15 border-slate-500/30 text-slate-300 hover:bg-amber-500/25 hover:text-amber-300'
+                                  } disabled:opacity-40`}
+                                  title={t('tip_send_survey', 'Enviar al cliente la forma de pago y la encuesta')}
+                                >
+                                  {sendingSurveyTo === lead.phone
+                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                    : <Star className="h-4 w-4" />}
+                                </button>
+
+                                <button
+                                  onClick={() => handleDeleteLead(lead)}
+                                  disabled={deletingPhone === lead.phone}
+                                  className="flex items-center justify-center h-8 w-8 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 hover:bg-rose-500/25 hover:text-rose-300 transition active:scale-95 disabled:opacity-40"
+                                  title={t('tip_delete_lead', 'Eliminar esta ficha (chats de prueba)')}
+                                >
+                                  {deletingPhone === lead.phone
+                                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                                    : <Trash2 className="h-4 w-4" />}
+                                </button>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -3041,6 +3170,106 @@ export default function App() {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de conversación del cliente */}
+      {chatLead && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+          onClick={() => setChatLead(null)}
+        >
+          <div
+            className="bg-slate-900 border border-cyan-500/25 rounded-2xl w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-700/70">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-cyan-400" />
+                  +{chatLead.phone}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {chatLead.service_type === 'installation' ? 'Instalación' : chatLead.service_type === 'maintenance' ? 'Mantención' : 'Servicio sin definir'}
+                  {chatLead.client_type ? ` · ${chatLead.client_type}` : ''}
+                  {chatLead.payment_method ? ` · Paga con ${chatLead.payment_method}` : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setChatLead(null)}
+                className="text-slate-400 hover:text-white transition shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {(chatLead.satisfaction_rating || chatLead.satisfaction_comment) && (
+              <div className="mx-5 mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
+                <div className="flex items-center gap-2 text-amber-300 text-xs font-bold">
+                  <Star className="h-4 w-4" />
+                  Encuesta de satisfacción
+                  {chatLead.satisfaction_rating && (
+                    <span className="ml-1 text-sm">{chatLead.satisfaction_rating}/7</span>
+                  )}
+                </div>
+                {chatLead.satisfaction_comment && (
+                  <p className="text-xs text-slate-200 mt-2 whitespace-pre-line leading-relaxed">
+                    {chatLead.satisfaction_comment}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar">
+              {chatLead.conversation && chatLead.conversation.length > 0 ? (
+                chatLead.conversation.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}
+                  >
+                    <div
+                      className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-line leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'bg-slate-800 text-slate-100 border border-slate-700'
+                          : 'bg-cyan-500/15 text-cyan-50 border border-cyan-500/25'
+                      }`}
+                    >
+                      <div className={`text-[10px] font-bold mb-1 ${msg.role === 'user' ? 'text-slate-400' : 'text-cyan-400'}`}>
+                        {msg.role === 'user' ? 'Cliente' : 'Bot'}
+                      </div>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-slate-400 text-sm italic py-10">
+                  Todavía no hay conversación guardada para este cliente.
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-700/70 flex items-center justify-between gap-3">
+              <a
+                href={`https://wa.me/${chatLead.phone}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 transition font-semibold"
+              >
+                <Phone className="h-4 w-4" />
+                Escribirle por WhatsApp
+              </a>
+              <button
+                onClick={() => handleSendSurvey(chatLead.phone)}
+                disabled={sendingSurveyTo === chatLead.phone}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/20 border border-amber-500/35 text-amber-200 text-sm font-semibold hover:bg-amber-500/30 transition active:scale-95 disabled:opacity-40"
+              >
+                {sendingSurveyTo === chatLead.phone
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Star className="h-4 w-4" />}
+                Enviar encuesta
+              </button>
+            </div>
           </div>
         </div>
       )}

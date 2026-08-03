@@ -72,19 +72,29 @@ Todo en `src/services/gemini.ts` (systemInstruction + extractLeadInfo) y `src/ro
   - **Acción tomada**: los 2 activadores de Cloud Build quedaron **Inhabilitados** (ya no se redespliegan). Los servicios NO se borraron por decisión del usuario; siguen existiendo pero sin recibir tráfico de WhatsApp (el webhook apunta a Santiago).
   - Pendiente opcional: borrar esos 2 servicios cuando se confirme que no hacen falta.
 
-## 4. PENDIENTES (en orden de urgencia)
+## 4. ESTADO DE PENDIENTES
 
-- [ ] **Webhook de Meta**: en developers.facebook.com → app → WhatsApp → Configuración → Webhook:
-  - Callback URL: `https://ecoclima-backend-437714636966.southamerica-west1.run.app/webhook`
-  - Verify token: el valor de `WHATSAPP_VERIFY_TOKEN` del `.env`
-  - Suscribirse al campo `messages`.
-  - Luego probar escribiendo al +56 9 5848 9307.
-- [ ] **Token permanente de WhatsApp**: el token actual es temporal (24 h). Crear "usuario del sistema" en Meta Business + verificación del negocio. **Trámite lento — prioridad máxima** (los jueces pueden pedir demo en vivo 18 ago–15 sep).
+> Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
+> esta sección estaba desactualizada respecto de las secciones 3-bis y 3-ter de arriba.
+
+### ✅ Resueltos
+
+- [x] **Webhook de Meta** — conectado y verificado. Callback `https://ecoclima-backend-437714636966.southamerica-west1.run.app/webhook`, suscrito al campo `messages`. Los mensajes del +56 9 5848 9307 llegan al backend de Santiago. *(27-07-2026)*
+- [x] **Token de WhatsApp** — resultó ser **permanente**, no temporal: es un token de usuario del sistema ("bot") en Meta Business, no expira. El pendiente no existía. *(27-07-2026)*
+- [x] **Repo limpio** — los ~50 archivos de la página Devpost guardada salieron del control de versiones. El repositorio rastrea 53 archivos: `ecoclima-backend/`, `ecoclima-dashboard/`, `Product_Evidence/`, `README.md`, `ESTADO_PROYECTO.md`, `LICENSE` y `.gitignore`. *(31-07-2026)*
+- [x] **README en inglés** para los jueces — arquitectura, qué decide la IA, cómo correrlo, variables de entorno y cómo probar el webhook. *(31-07-2026)*
+- [x] **Alerta de disponibilidad** — uptime check sobre `/health` cada 1 min con alerta por correo si el bot cae. *(31-07-2026)*
+- [x] **Carpeta de evidencia** — `Product_Evidence/` con logs de ejecución de Gemini, métricas de la API (27 llamadas, 35.883 tokens, 96% de éxito), leads de producción y health check. *(01-08-2026)*
+
+### ⏳ Realmente pendientes
+
 - [ ] **Variables SMTP** (`SMTP_HOST/PORT/USER/PASS`): usadas por `leads.ts` (exportar por email) pero NO configuradas ni en `.env` ni en Cloud Run. Esa función fallará hasta configurarlas o deshabilitarla.
-- [ ] **Limpiar el repo**: contiene ~40 archivos basura de la página Devpost guardada (`*.js.descarga`, `dQw4w9WgXcQ.html`, etc.). Sacarlos antes de que los jueces revisen. También falta README en inglés con instrucciones de prueba.
-- [ ] **Alerta de disponibilidad** en Cloud Monitoring sobre `/health`.
-- [ ] **Carpeta "Evidencia XPRIZE"**: boletas, capturas, testimonios, planilla de ingresos mensuales en USD. Alimentarla cada semana.
 - [ ] **Rotar claves** (Gemini, Maps) — llevan meses sin rotar y estuvieron en este disco.
+- [ ] **Servicios fantasma**: en el proyecto `massive-physics-412101` quedan 2 servicios Cloud Run `ecoclima-os` (us-east1 y us-central1) sin tráfico y con sus activadores de Cloud Build inhabilitados. Borrarlos cuando se confirme que no hacen falta.
+- [ ] **Plantilla de Meta** para mensajes iniciados por la empresa (encuesta de satisfacción y recordatorio anual a +24 h del último mensaje del cliente). Ver sección 3-bis.
+
+> Los pendientes de la **postulación** al XPRIZE (video, ingresos, autorización del dueño, testimonios)
+> se llevan aparte, en `CHECKLIST_ENTREGA_XPRIZE.md`.
 
 ## 5. Advertencias — NO confundirse con esto
 

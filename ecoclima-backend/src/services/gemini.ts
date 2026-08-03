@@ -76,6 +76,17 @@ interface UserSession {
 
 const sessions: Map<string, UserSession> = new Map();
 
+// Cuántos mensajes de la conversación se guardan en el lead.
+const MAX_STORED_MESSAGES = 60;
+
+// Campos del lead que hay que recuperar desde la base de datos al reiniciar el servidor.
+const HYDRATED_FIELDS = [
+  'service_type', 'installation_age', 'address', 'appointment_time', 'latitude', 'longitude',
+  'area_m2', 'calculated_btu', 'notes', 'status', 'last_maintenance_info', 'is_working_correctly',
+  'installation_date', 'last_maintenance_date', 'satisfaction_rating', 'satisfaction_comment',
+  'client_type', 'contact_phone', 'equipment_count', 'payment_method'
+] as const;
+
 // Helper to get or create session
 function getOrCreateSession(phone: string): UserSession {
   if (!sessions.has(phone)) {
@@ -85,6 +96,58 @@ function getOrCreateSession(phone: string): UserSession {
     });
   }
   return sessions.get(phone)!;
+}
+
+// Olvida la conversación en memoria de un cliente. Se usa al eliminar un lead desde el
+// dashboard: sin esto, el bot seguiría recordando el chat de una ficha ya borrada.
+export function clearSession(phone: string): boolean {
+  return sessions.delete(phone.replace(/\D/g, ''));
+}
+
+// Convierte el historial de Gemini a algo guardable y legible en el dashboard.
+// Las fotos NO se guardan (pesan demasiado y revientan el documento): se deja una marca.
+function serializeHistory(history: UserSession['history']) {
+  return history
+    .slice(-MAX_STORED_MESSAGES)
+    .map(turn => ({
+      role: turn.role,
+      text: turn.parts
+        .map(part => ('text' in part ? part.text : '[Foto enviada por el cliente]'))
+        .join(' ')
+        .trim()
+    }))
+    .filter(m => m.text.length > 0);
+}
+
+// Reconstruye la sesión desde la base de datos.
+//
+// Cloud Run se apaga solo cuando no hay mensajes, y con él se borraba la memoria del bot:
+// el cliente que respondía 15 minutos después se encontraba con un bot que lo saludaba
+// de nuevo desde cero. Peor aún, la sesión vacía sobrescribía con null los datos que ya
+// estaban guardados. Esto arregla las dos cosas.
+function hydrateSession(session: UserSession, existingLead: any) {
+  if (!existingLead) return;
+
+  for (const field of HYDRATED_FIELDS) {
+    const current = (session.leadData as any)[field];
+    const stored = existingLead[field];
+    if ((current === undefined || current === null) && stored !== undefined && stored !== null) {
+      (session.leadData as any)[field] = stored;
+    }
+  }
+
+  if (session.history.length === 0 && Array.isArray(existingLead.conversation)) {
+    session.history = existingLead.conversation
+      .filter((m: any) => m && typeof m.text === 'string' && m.text.trim().length > 0)
+      .map((m: any) => ({
+        role: m.role === 'model' ? ('model' as const) : ('user' as const),
+        parts: [{ text: m.text as string }]
+      }));
+
+    if (session.history.length > 0) {
+      console.log(`[SESIÓN] Conversación restaurada desde la base de datos: ${session.history.length} mensajes.`);
+    }
+  }
 }
 
 async function getExistingLead(phone: string): Promise<any> {
@@ -175,10 +238,10 @@ async function notifyExecutivePilar(clientPhone: string, leadData: any) {
 // Helper to notify assigned technician when a client shares their location
 async function notifyTechnicianOfLocation(clientPhone: string, technicianName: string, lat: number, lng: number, address: string) {
   try {
+    // Solo técnicos con número REAL verificado. No agregar números de relleno:
+    // si el técnico no está aquí, la ubicación simplemente no se reenvía (y queda en el log).
     const techPhones: { [key: string]: string } = {
-      'francisco': '56990939188',
-      'felipe': '56911112222',
-      'juan': '56933334444'
+      'francisco': '56990939188'
     };
 
     const cleanName = technicianName.toLowerCase().trim();
@@ -250,12 +313,19 @@ export class GeminiService {
     const cleanPhone = phone.replace(/\D/g, '');
     const session = getOrCreateSession(cleanPhone);
 
+    // El teléfono de contacto es el mismo desde el que escribe el cliente: se registra solo.
+    // Por eso el bot ya NO lo pregunta.
+    session.leadData.contact_phone = cleanPhone;
+
     // 1. Fetch existing lead to check pause state
     const existingLead = await getExistingLead(cleanPhone);
     if (existingLead && existingLead.status === 'derivado_ventas') {
       console.log(`[GEMINI SERVICE] Bot pausado para el teléfono +${cleanPhone} (estado: derivado_ventas)`);
       return ''; // Empty return to pause bot response
     }
+
+    // Recuperar conversación y datos previos antes de seguir (ver hydrateSession).
+    hydrateSession(session, existingLead);
 
     // Captura de respuestas a la encuesta de satisfacción (servicio ya completado)
     const surveyMode = !!(existingLead && existingLead.status === 'Instalado');
@@ -264,8 +334,13 @@ export class GeminiService {
       if (ratingMatch && !existingLead.satisfaction_rating) {
         session.leadData.satisfaction_rating = parseInt(ratingMatch[1], 10);
       }
-      const prev = existingLead.satisfaction_comment ? existingLead.satisfaction_comment + ' | ' : '';
-      session.leadData.satisfaction_comment = (prev + message).slice(0, 800);
+      // Solo acumular como testimonio desde que ya hay nota: antes de eso el cliente
+      // está respondiendo la forma de pago, que no debe ensuciar el comentario.
+      const hasRating = !!(existingLead.satisfaction_rating || session.leadData.satisfaction_rating);
+      if (hasRating) {
+        const prev = existingLead.satisfaction_comment ? existingLead.satisfaction_comment + ' | ' : '';
+        session.leadData.satisfaction_comment = (prev + message).slice(0, 800);
+      }
     }
 
     // If geolocation is received
@@ -282,7 +357,7 @@ export class GeminiService {
       aiLogger.logEvent(cleanPhone, 'location_received', `Recibió ubicación GPS y resolvió dirección: "${address}"`, 10, 500);
       
       // FIX: Ensure we save the location to the database before returning
-      await this.saveLeadToFirestore(cleanPhone, session.leadData);
+      await this.saveLeadToFirestore(cleanPhone, session.leadData, session.history);
       
       // If a technician is already assigned to this client, forward the location
       if (existingLead && existingLead.technician) {
@@ -312,13 +387,15 @@ SALUDO INICIAL (MUY IMPORTANTE):
 - Cuando el cliente te escriba por primera vez, debes presentarte y preguntarle explícitamente qué servicio busca, ofreciéndole estas dos opciones: 1) Mantenimiento Preventivo o 2) Venta/Instalación de Aire Acondicionado.
 - La opción que elija define el TIPO DE SERVICIO del registro: opción 1 = "Mantención", opción 2 = "Instalación". Si el cliente no lo deja claro, pregúntaselo antes de continuar.
 
-DATOS COMUNES DE INGRESO (OBLIGATORIOS EN AMBOS FLUJOS, UNO POR MENSAJE):
-Después de saber qué servicio busca, y antes de las preguntas propias de cada flujo, recopila SIEMPRE estos cuatro datos, uno por mensaje y en este orden:
+DATO COMÚN DE INGRESO (OBLIGATORIO EN AMBOS FLUJOS):
+Después de saber qué servicio busca, y antes de las preguntas propias de cada flujo, pregunta SOLO esto:
    a) Si es empresa o particular. Texto sugerido: "Para registrar tu solicitud, ¿el servicio es para una *empresa* o para un *particular*?"
-   b) Número de teléfono de contacto. Texto sugerido: "¿A qué número de teléfono podemos contactarte? Puedes confirmarme este mismo si prefieres."
-   c) Cantidad de equipos. Texto sugerido: "¿Cuántos equipos de aire acondicionado necesitas atender?"
-   d) Forma de pago. Texto sugerido: "¿Qué forma de pago prefieres: transferencia, efectivo, débito/crédito?"
-   - Si el cliente respondió "empresa" en (a), agrega en la pregunta (d) que también trabajamos con facturación a empresas.
+   - Si responde "empresa", menciona que también trabajamos con facturación.
+
+PROHIBIDO PREGUNTAR (el sistema ya lo resuelve por otra vía):
+   - NUNCA preguntes el número de teléfono de contacto: ya lo tenemos, es el mismo número desde el que te está escribiendo. Se registra solo.
+   - NUNCA preguntes la cantidad de equipos.
+   - NUNCA preguntes la forma de pago durante esta conversación. Eso se consulta después, cuando el trabajo ya está terminado.
 
 REGLAS ESTRUCTURALES Y DE COMUNICACIÓN (ESTRICTAS):
 1. PREGUNTAS DE A UNA: Debes hacer UNA SOLA PREGUNTA por cada mensaje. JAMÁS hagas dos o más preguntas juntas. Espera la respuesta del cliente antes de avanzar.
@@ -327,15 +404,13 @@ REGLAS ESTRUCTURALES Y DE COMUNICACIÓN (ESTRICTAS):
 
 REGLAS DE NEGOCIO Y AGENDA:
 
-1. PARA MANTENIMIENTOS:
-   - Recopila esta información de a una sola por vez:
-     * Capacidad/potencia del equipo (a# 9.000 BTU, b# 12.000 BTU, c# 18.000 BTU, d# 24.000 BTU o más).
-     * Antigüedad del equipo.
-     * Fecha aproximada de instalación del equipo.
-     * Cuándo se le hizo el último mantenimiento.
-     * En qué condiciones se encuentra el equipo: si funciona correctamente o presenta fallas (ej: ruido, no enfría, gotea).
+1. PARA MANTENIMIENTOS — SON SOLO ESTAS 4 PREGUNTAS, UNA POR MENSAJE, EN ESTE ORDEN:
+     * Antigüedad y última mantención EN UNA SOLA PREGUNTA. Texto sugerido: "¿Qué antigüedad tiene el equipo y cuándo fue su última mantención?"
+     * En qué condiciones se encuentra: si funciona correctamente o presenta fallas (ej: ruido, no enfría, gotea).
      * Dirección completa para la visita.
      * Fecha para la cita, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4). No preguntes fecha y hora de forma abierta.
+   - NO preguntes la capacidad ni los BTU del equipo. Si el cliente los menciona por su cuenta, regístralos, pero jamás los pidas.
+   - NO preguntes por separado la fecha de instalación: va incluida en la primera pregunta.
    - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de mantención. Si el cliente pregunta por el precio, explícale amablemente que nuestra ejecutiva le confirmará el valor al contactarlo.
 
 2. PARA VENTAS E INSTALACIONES NUEVAS:
@@ -346,7 +421,9 @@ REGLAS DE NEGOCIO Y AGENDA:
    - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de equipos ni de instalación. Explica amablemente que el valor exacto se define después de la visita técnica de factibilidad, ya que depende de las condiciones del lugar.
 
 3. CIERRE Y DERIVACIÓN FINAL:
-   - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, agradécele al cliente y cierra con este texto EXACTO (el sistema lo detecta para alertar a la ejecutiva): "Tu solicitud quedó registrada con éxito. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo, te confirme el valor y coordine los detalles. Un momento, por favor."
+   - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, agradécele al cliente y cierra con este texto EXACTO (el sistema lo detecta para alertar a la ejecutiva): "Tu solicitud quedó registrada con éxito. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo, te confirme el valor y coordine los detalles. Un momento, por favor.
+
+Si prefieres escribirle tú directamente, acá está su WhatsApp: https://wa.me/56961897021"
 
 4. AGENDA (REVÍSALA SIEMPRE ANTES DE PROPONER O ACEPTAR UNA FECHA). Horarios YA OCUPADOS (NO disponibles):
 ${calendarContext}
@@ -354,13 +431,14 @@ ${calendarContext}
    - Si el cliente propone un horario que coincide con uno ocupado, adviértele amablemente que ya está tomado y ofrécele alternativas libres.
    - Si no logran coordinar una fecha o hay cualquier problema con la agenda, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE la frase de la regla de SOLICITUD HUMANA.
 ${surveyMode ? `
-5. MODO ENCUESTA DE SATISFACCIÓN (ACTIVO PARA ESTE CLIENTE):
-   - El servicio de este cliente YA FUE COMPLETADO y se le envió la primera pregunta de la encuesta. NO inicies flujos de venta ni mantención salvo que él lo pida explícitamente.
+5. MODO POST-SERVICIO (ACTIVO PARA ESTE CLIENTE):
+   - El servicio de este cliente YA FUE COMPLETADO y el sistema ya le envió la pregunta por la FORMA DE PAGO. NO inicies flujos de venta ni mantención salvo que él lo pida explícitamente.
    - Haz las preguntas UNA POR MENSAJE, en este orden exacto, usando estos textos:
-     1) (ya enviada por el sistema) "Del 1 al 7, ¿qué nota le pones al trabajo realizado?"
-     2) "¡Gracias por tu nota! 🙌\\n\\n2️⃣ ¿El equipo cumplió con tus expectativas?"
-     3) "3️⃣ ¿Nos recomendarías a tus amigos o vecinos?"
-     4) "4️⃣ Por último, ¿quieres dejarnos algún comentario o sugerencia? Puedes escribir con total libertad, lo leemos todos."
+     1) (ya enviada por el sistema) "¿Qué forma de pago prefieres: transferencia, efectivo o débito/crédito?"
+     2) Al recibir la forma de pago, confírmala y sigue: "¡Perfecto, queda anotado! 🙌\\n\\nY para terminar, del *1 al 7*, ¿qué nota le pones al trabajo realizado?"
+     3) "¡Gracias por tu nota! 🙌\\n\\n¿El equipo cumplió con tus expectativas?"
+     4) "¿Nos recomendarías a tus amigos o vecinos?"
+     5) "Por último, ¿quieres dejarnos algún comentario o sugerencia? Puedes escribir con total libertad, lo leemos todos."
    - Al recibir el comentario final responde: "¡Muchas gracias por tu tiempo! 💙 Tu opinión nos ayuda a mejorar cada día. ¿Nos autorizas a compartir tu comentario como testimonio de clientes de Furtz Clima?"
    - Tras su respuesta, agradece y despídete cordialmente. No insistas ni repitas preguntas ya respondidas.
    - Si el cliente no quiere responder, agradécele igual y despídete sin insistir.` : ''}
@@ -426,12 +504,12 @@ ${surveyMode ? `
         const hasTime = !!session.leadData.appointment_time;
         
         if (session.leadData.service_type === 'maintenance') {
-          const hasBtu = !!session.leadData.calculated_btu;
-          const hasAge = !!session.leadData.installation_age;
-          const hasLastMaint = !!session.leadData.last_maintenance_info;
+          // Antigüedad y última mantención ahora se preguntan juntas: basta con capturar una de las dos.
+          // Ya no se exigen los BTU, porque el bot dejó de preguntarlos.
+          const hasHistory = !!session.leadData.installation_age || !!session.leadData.last_maintenance_info;
           const hasStatus = session.leadData.is_working_correctly !== undefined;
-          
-          if (hasBtu && hasAge && hasLastMaint && hasStatus && hasAddress && hasTime) {
+
+          if (hasHistory && hasStatus && hasAddress && hasTime) {
             session.leadData.status = 'pendiente_revision';
           }
         } else if (session.leadData.service_type === 'installation') {
@@ -444,7 +522,7 @@ ${surveyMode ? `
       }
 
       // Save lead updates to database on every turn to support real-time dashboard feed
-      await this.saveLeadToFirestore(cleanPhone, session.leadData);
+      await this.saveLeadToFirestore(cleanPhone, session.leadData, session.history);
 
       const latencyMs = Date.now() - startTime;
       const tokensUsed = response.usageMetadata?.totalTokenCount || Math.round((message.length + replyText.length) * 0.7);
@@ -563,7 +641,13 @@ ${surveyMode ? `
     }
 
     // Last maintenance info extraction (e.g. "nunca", "hace 6 meses")
-    if (textLower.includes('nunca') || textLower.includes('ningun') || textLower.includes('ningún')) {
+    // OJO: antes bastaba con que apareciera "ningun" en cualquier parte del mensaje, así que
+    // "no tiene ninguna falla" quedaba registrado como "nunca se le hizo mantención".
+    const neverMaintained =
+      (/\bnunca\b/.test(textLower) && !/nunca\s+(ha\s+|se\s+ha\s+)?(fall|rot|dado\s+problema)/.test(textLower)) ||
+      /(ningun|ningún)a?\s+(mantenci|mantenimiento|limpieza)/.test(textLower);
+
+    if (neverMaintained) {
       leadData.last_maintenance_info = 'Nunca';
     } else {
       const lastMaintMatch = textLower.match(/(?:hace|ultimo|último)\s*(\d+)\s*(mes|meses|año|ano|años)/);
@@ -577,7 +661,13 @@ ${surveyMode ? `
     }
 
     // Works correctly status extraction (e.g. functions correctly vs fault)
-    if (textLower.includes('funciona bien') || textLower.includes('si funciona') || textLower.includes('funciona correctamente') || textLower.includes('todo bien') || textLower.includes('sí, funciona') || textLower.includes('si, funciona') || textLower.includes('si, todo bien')) {
+    // La negación se evalúa PRIMERO: antes, "no tiene ninguna falla" se registraba como
+    // equipo con problemas, porque solo se buscaba la palabra suelta "falla".
+    const saysNoFault =
+      /\bno\s+(tiene|presenta|hay|ha\s+tenido)\s+(ninguna?\s+|ningún\s+)?(falla|problema|ruido|fuga)/.test(textLower) ||
+      /\bsin\s+(fallas?|problemas?|ruidos?)\b/.test(textLower);
+
+    if (saysNoFault || textLower.includes('funciona bien') || textLower.includes('si funciona') || textLower.includes('funciona correctamente') || textLower.includes('todo bien') || textLower.includes('sí, funciona') || textLower.includes('si, funciona') || textLower.includes('si, todo bien')) {
       leadData.is_working_correctly = true;
     } else if (textLower.includes('gotea') || textLower.includes('ruido') || textLower.includes('no enfría') || textLower.includes('no enfria') || textLower.includes('no funciona') || textLower.includes('tiene falla') || textLower.includes('falla') || textLower.includes('no prende') || textLower.includes('marca error')) {
       leadData.is_working_correctly = false;
@@ -595,9 +685,13 @@ ${surveyMode ? `
   }
 
   // Save registered lead to Firestore and local fallback JSON mock
-  private async saveLeadToFirestore(phone: string, leadData: any) {
+  private async saveLeadToFirestore(phone: string, leadData: any, history?: UserSession['history']) {
     const defaultStatus = leadData.status || 'Pendiente';
     const createdAt = leadData.created_at || new Date().toISOString();
+    // La conversación se guarda junto al lead: la ve Pilar en el dashboard y le sirve
+    // al propio bot para recordar el hilo si el servidor se reinicia.
+    const conversation = history ? serializeHistory(history) : null;
+    const lastMessageAt = conversation && conversation.length > 0 ? new Date().toISOString() : null;
 
     // 1. Try Firestore if database connection exists
     if (db) {
@@ -619,6 +713,15 @@ ${surveyMode ? `
           is_working_correctly: leadData.is_working_correctly !== undefined ? leadData.is_working_correctly : null,
           installation_date: leadData.installation_date || null,
           last_maintenance_date: leadData.last_maintenance_date || null,
+          // Estos campos se capturaban en memoria pero NO se guardaban: se perdían en cada mensaje.
+          client_type: leadData.client_type || null,
+          contact_phone: leadData.contact_phone || null,
+          equipment_count: leadData.equipment_count || null,
+          payment_method: leadData.payment_method || null,
+          satisfaction_rating: leadData.satisfaction_rating || null,
+          satisfaction_comment: leadData.satisfaction_comment || null,
+          // Solo se escribe si hay historial, para no borrar el que ya estaba guardado.
+          ...(conversation ? { conversation, last_message_at: lastMessageAt } : {}),
           created_at: createdAt
         }, { merge: true });
         console.log(`Lead registrado con éxito en Firestore para el teléfono: ${phone}`);
@@ -652,6 +755,13 @@ ${surveyMode ? `
         is_working_correctly: leadData.is_working_correctly !== undefined ? leadData.is_working_correctly : null,
         installation_date: leadData.installation_date || null,
         last_maintenance_date: leadData.last_maintenance_date || null,
+        client_type: leadData.client_type || null,
+        contact_phone: leadData.contact_phone || null,
+        equipment_count: leadData.equipment_count || null,
+        payment_method: leadData.payment_method || null,
+        satisfaction_rating: leadData.satisfaction_rating || null,
+        satisfaction_comment: leadData.satisfaction_comment || null,
+        ...(conversation ? { conversation, last_message_at: lastMessageAt } : {}),
         created_at: createdAt
       };
 

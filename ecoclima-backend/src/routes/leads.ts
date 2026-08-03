@@ -4,6 +4,7 @@ import fs from 'fs';
 import nodemailer from 'nodemailer';
 import axios from 'axios';
 import { db } from '../services/firebase';
+import { clearSession } from '../services/gemini';
 
 const router = Router();
 
@@ -226,6 +227,14 @@ router.get('/', async (req: Request, res: Response) => {
           is_working_correctly: item.is_working_correctly !== undefined ? item.is_working_correctly : null,
           installation_date: item.installation_date !== undefined ? item.installation_date : null,
           last_maintenance_date: item.last_maintenance_date !== undefined ? item.last_maintenance_date : null,
+          client_type: item.client_type !== undefined ? item.client_type : null,
+          contact_phone: item.contact_phone !== undefined ? item.contact_phone : null,
+          equipment_count: item.equipment_count !== undefined ? item.equipment_count : null,
+          payment_method: item.payment_method !== undefined ? item.payment_method : null,
+          satisfaction_rating: item.satisfaction_rating !== undefined ? item.satisfaction_rating : null,
+          satisfaction_comment: item.satisfaction_comment !== undefined ? item.satisfaction_comment : null,
+          conversation: Array.isArray(item.conversation) ? item.conversation : [],
+          last_message_at: item.last_message_at !== undefined ? item.last_message_at : null,
           created_at: item.created_at || new Date().toISOString()
         }));
         return res.status(200).json(leads);
@@ -291,6 +300,63 @@ router.put('/:phone', async (req: Request, res: Response) => {
     }
     res.status(200).json({ success: true, message: 'Lead actualizado con éxito (local mock).' });
   }
+});
+
+// DELETE /api/leads/:phone - Eliminar una ficha completa.
+// Pensado para limpiar los chats de prueba hechos con números propios, que de otra
+// forma aparecen ante los jueces como si fueran clientes reales.
+router.delete('/:phone', async (req: Request, res: Response) => {
+  const cleanPhone = (req.params.phone || '').replace(/\D/g, '');
+
+  if (!cleanPhone) {
+    return res.status(400).json({ error: 'Número de teléfono inválido.' });
+  }
+
+  let deletedFromDb = false;
+  try {
+    if (db) {
+      const leadRef = db.collection('leads').doc(cleanPhone);
+      const doc = await leadRef.get();
+      if (doc.exists) {
+        await leadRef.delete();
+        deletedFromDb = true;
+        console.log(`[BORRADO] Ficha ${cleanPhone} eliminada de Firestore.`);
+      }
+    }
+  } catch (error: any) {
+    console.error(`Error al eliminar la ficha ${cleanPhone} de Firestore:`, error.message);
+    return res.status(500).json({ error: `No se pudo eliminar: ${error.message}` });
+  }
+
+  // Sacarla también del respaldo local
+  let deletedFromMock = false;
+  try {
+    const mockLeadsPath = path.resolve(process.cwd(), 'data_mock', 'clientes_leads.json');
+    if (fs.existsSync(mockLeadsPath)) {
+      const mockData = JSON.parse(fs.readFileSync(mockLeadsPath, 'utf8'));
+      const filtered = mockData.filter((item: any) => item.phone !== cleanPhone);
+      if (filtered.length !== mockData.length) {
+        fs.writeFileSync(mockLeadsPath, JSON.stringify(filtered, null, 2), 'utf8');
+        deletedFromMock = true;
+      }
+    }
+  } catch (error: any) {
+    console.error('Error al eliminar la ficha del respaldo local:', error.message);
+  }
+
+  // Y que el bot olvide la conversación que tenía en memoria.
+  clearSession(cleanPhone);
+
+  if (!deletedFromDb && !deletedFromMock) {
+    return res.status(404).json({ error: 'No se encontró esa ficha para eliminar.' });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: `Ficha de +${cleanPhone} eliminada.`,
+    deletedFromDb,
+    deletedFromMock
+  });
 });
 
 // GET /api/leads/route-optimization - Get optimized list of visits
@@ -581,10 +647,12 @@ async function sendSatisfactionSurvey(clientPhone: string) {
     const whatsappToken = process.env.WHATSAPP_TOKEN;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
+    // Primero la forma de pago (por eso el bot ya no la pregunta al inicio),
+    // y después la encuesta. El bot continúa el hilo (ver MODO POST-SERVICIO en gemini.ts).
     const messageText = `¡Hola! Te saluda el asistente virtual de Furtz Clima 😊\n\n` +
-      `Tu servicio ya fue completado y queremos saber cómo lo hicimos. Son solo 4 preguntas rápidas:\n\n` +
-      `1️⃣ Del *1 al 7*, ¿qué nota le pones al trabajo realizado?\n\n` +
-      `Respóndeme con el número y seguimos 👇`;
+      `Tu servicio ya fue completado. Para cerrar tu ficha, cuéntame:\n\n` +
+      `💳 ¿Qué forma de pago prefieres: *transferencia*, *efectivo* o *débito/crédito*?\n\n` +
+      `Después te hago 4 preguntas cortitas para saber cómo lo hicimos 👇`;
 
     if (whatsappToken && phoneId) {
       const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
@@ -593,14 +661,71 @@ async function sendSatisfactionSurvey(clientPhone: string) {
         { messaging_product: 'whatsapp', to: clientPhone, type: 'text', text: { body: messageText } },
         { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` } }
       );
-      console.log(`[WHATSAPP REAL] Encuesta de satisfacción enviada al cliente +${clientPhone}`);
+      console.log(`[WHATSAPP REAL] Mensaje post-servicio enviado al cliente +${clientPhone}`);
+      return { sent: true as const };
     } else {
-      console.log(`[SIMULACIÓN ENCUESTA] Encuesta de satisfacción para +${clientPhone}:\n${messageText}`);
+      console.log(`[SIMULACIÓN ENCUESTA] Mensaje post-servicio para +${clientPhone}:\n${messageText}`);
+      return { sent: false as const, reason: 'WhatsApp no está configurado en este entorno (modo simulación).' };
     }
   } catch (error: any) {
-    console.error('Error al enviar encuesta de satisfacción:', error.response?.data || error.message);
+    // Meta rechaza los mensajes que inicia la empresa pasadas 24 h desde el último
+    // mensaje del cliente, salvo que se use una plantilla aprobada por ellos.
+    const detail = error.response?.data?.error?.message || error.message;
+    console.error('Error al enviar el mensaje post-servicio:', error.response?.data || error.message);
+    return { sent: false as const, reason: detail };
   }
 }
+
+// POST /api/leads/:phone/send-survey - Disparar a mano el mensaje post-servicio
+// (forma de pago + encuesta) desde el dashboard, sin tener que cambiar el estado.
+router.post('/:phone/send-survey', async (req: Request, res: Response) => {
+  const cleanPhone = (req.params.phone || '').replace(/\D/g, '');
+
+  if (!cleanPhone) {
+    return res.status(400).json({ error: 'Número de teléfono inválido.' });
+  }
+
+  // Dejar al cliente inscrito en el recordatorio anual de mantención. Si el servicio
+  // se cerró por esta vía y no por el estado "Instalado", la fecha no estaría grabada
+  // y la campaña automática nunca lo encontraría.
+  let reminderRegistered = false;
+  try {
+    if (db) {
+      const leadRef = db.collection('leads').doc(cleanPhone);
+      const doc = await leadRef.get();
+      const data = doc.exists ? doc.data() : null;
+
+      if (data) {
+        const dateField = data.service_type === 'installation' ? 'installation_date' : 'last_maintenance_date';
+        if (!data[dateField]) {
+          const completionDate = new Date().toISOString();
+          await leadRef.update({ [dateField]: completionDate });
+          updateLocalMock(cleanPhone, { [dateField]: completionDate });
+          reminderRegistered = true;
+          console.log(`[RECORDATORIO ANUAL] ${cleanPhone} inscrito con ${dateField} = ${completionDate}`);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error('No se pudo registrar la fecha para el recordatorio anual:', err.message);
+  }
+
+  const result = await sendSatisfactionSurvey(cleanPhone);
+
+  if (result.sent) {
+    return res.status(200).json({
+      success: true,
+      message: 'Mensaje enviado al cliente por WhatsApp.',
+      reminderRegistered
+    });
+  }
+
+  return res.status(502).json({
+    success: false,
+    error: result.reason,
+    hint: 'Si el cliente no te escribe hace más de 24 horas, Meta bloquea el mensaje hasta que exista una plantilla aprobada.'
+  });
+});
 
 // POST /api/leads/send-preventive-offers - Trigger preventive maintenance campaign
 router.post('/send-preventive-offers', async (req: Request, res: Response) => {
