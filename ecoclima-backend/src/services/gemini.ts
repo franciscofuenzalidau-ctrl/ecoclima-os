@@ -428,6 +428,15 @@ REGLAS DE NEGOCIO Y AGENDA:
      * Fecha para la visita técnica de factibilidad, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4).
    - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de equipos ni de instalación. Explica amablemente que el valor exacto se define después de la visita técnica de factibilidad, ya que depende de las condiciones del lugar.
 
+2-bis. DIRECCIÓN — DATO CRÍTICO, EL TÉCNICO NO PUEDE IR SIN ESTO:
+   - Al pedir la dirección, ofrécele SIEMPRE las dos formas, con este texto:
+     "¿Cuál es la dirección para la visita? Puedes escribirla, o mandarme tu ubicación
+      desde el clip 📎 → Ubicación, que es más exacto para el técnico."
+   - Necesitas calle, número y sector o comuna. Si te da algo incompleto (solo la calle,
+     solo la comuna, o algo como "en el centro"), pídele amablemente que la complete.
+   - NO avances a proponer horarios mientras no tengas una dirección utilizable o el
+     cliente te haya mandado su ubicación.
+
 3. CIERRE Y DERIVACIÓN FINAL:
    - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, agradécele al cliente y cierra con este texto EXACTO (el sistema lo detecta para alertar a la ejecutiva): "Tu solicitud quedó registrada con éxito. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo, te confirme el valor y coordine los detalles. Un momento, por favor.
 
@@ -484,14 +493,18 @@ ${surveyMode ? `
         session.history.push({ role: 'user', parts: [{ text: message }] });
       }
 
-      // Run chat completion with gemini-2.5-flash
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: session.history,
-        config: {
-          systemInstruction: systemInstruction,
-        }
-      });
+      // Las dos llamadas a Gemini van EN PARALELO: la respuesta al cliente y la
+      // extracción de datos. Así capturar bien la dirección no le suma espera al cliente.
+      const [response, datosExtraidos] = await Promise.all([
+        this.ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: session.history,
+          config: {
+            systemInstruction: systemInstruction,
+          }
+        }),
+        this.extraerDatosConIA(session.history)
+      ]);
 
       let replyText = response.text || 'Disculpa, no pude procesar tu mensaje. ¿Podrías repetirlo?';
       
@@ -516,6 +529,13 @@ ${surveyMode ? `
           session.leadData.appointment_time = elegido.label;
           console.log(`[AGENDA] +${cleanPhone} tomó el cupo ${elegido.id} (${elegido.label}).`);
         }
+      }
+
+      // La IA manda por sobre las heurísticas de palabras clave.
+      const direccionAntes = session.leadData.address;
+      this.aplicarDatosExtraidos(datosExtraidos, session.leadData);
+      if (session.leadData.address && session.leadData.address !== direccionAntes) {
+        console.log(`[EXTRACCIÓN IA] Dirección capturada para +${cleanPhone}: "${session.leadData.address}"`);
       }
 
       // Check for human assistance / derivation trigger
@@ -573,7 +593,80 @@ ${surveyMode ? `
     }
   }
 
-  // Simple heuristics to parse and extract lead details from chat messages
+  /**
+   * Extrae los datos del cliente usando Gemini en vez de buscar palabras sueltas.
+   *
+   * Antes la dirección solo se guardaba si el mensaje contenía "calle", "avenida",
+   * "pasaje", "nro" o "n°". Un cliente que escribía "Antonio Duce 795, Niebla,
+   * Valdivia" quedaba con dirección vacía, y el técnico recibía "No especificada".
+   *
+   * Devuelve solo los campos que encontró; el resto queda en null y no se toca.
+   */
+  private async extraerDatosConIA(history: UserSession['history']): Promise<Record<string, any>> {
+    try {
+      const conversacion = history
+        .slice(-10)
+        .map(t => {
+          const texto = t.parts.map(p => ('text' in p ? p.text : '[el cliente envió una foto]')).join(' ');
+          return `${t.role === 'user' ? 'Cliente' : 'Asistente'}: ${texto}`;
+        })
+        .join('\n');
+
+      const prompt = `Eres un extractor de datos para una empresa de aire acondicionado en Valdivia, Chile.
+Lee la conversación y devuelve SOLO un objeto JSON válido, sin explicaciones ni markdown.
+Usa null en cualquier campo que el cliente no haya entregado. No inventes nada.
+
+Campos:
+- "address": la dirección de la visita tal como la dio el cliente, incluyendo número, sector y ciudad si los mencionó. Ejemplo: "Antonio Duce 795, Niebla, Valdivia". Es una dirección aunque no diga la palabra "calle".
+- "client_type": "empresa" o "particular".
+- "area_m2": número de metros cuadrados del espacio a climatizar.
+- "installation_age": antigüedad del equipo, en texto. Ejemplo: "2 años".
+- "last_maintenance_info": cuándo fue la última mantención. Ejemplo: "hace 1 año", "nunca".
+- "is_working_correctly": true si dice que funciona bien, false si menciona una falla, null si no lo dijo.
+- "equipment_count": cuántos equipos.
+- "payment_method": forma de pago que mencionó.
+
+Conversación:
+${conversacion}`;
+
+      const res = await this.ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { responseMimeType: 'application/json', temperature: 0 }
+      });
+
+      const crudo = (res.text || '').trim().replace(/^```json\s*|\s*```$/g, '');
+      const datos = JSON.parse(crudo);
+      return typeof datos === 'object' && datos !== null ? datos : {};
+    } catch (err) {
+      console.error('[EXTRACCIÓN IA] No se pudieron extraer los datos:', err instanceof Error ? err.message : err);
+      return {};
+    }
+  }
+
+  /** Copia al lead solo los campos que la IA encontró de verdad. */
+  private aplicarDatosExtraidos(datos: Record<string, any>, leadData: any) {
+    const texto = ['address', 'installation_age', 'last_maintenance_info', 'payment_method'];
+    const numeros = ['area_m2', 'equipment_count'];
+
+    for (const campo of texto) {
+      const v = datos[campo];
+      if (typeof v === 'string' && v.trim().length > 2) leadData[campo] = v.trim();
+    }
+    for (const campo of numeros) {
+      const v = Number(datos[campo]);
+      if (Number.isFinite(v) && v > 0) leadData[campo] = v;
+    }
+    if (datos.client_type === 'empresa' || datos.client_type === 'particular') {
+      leadData.client_type = datos.client_type;
+    }
+    if (typeof datos.is_working_correctly === 'boolean') {
+      leadData.is_working_correctly = datos.is_working_correctly;
+    }
+  }
+
+  // Heurísticas simples de respaldo. La fuente principal ahora es extraerDatosConIA;
+  // esto solo rellena lo que la IA no haya devuelto.
   private extractLeadInfo(text: string, leadData: any, config: any) {
     const textLower = text.toLowerCase();
 
@@ -706,10 +799,9 @@ ${surveyMode ? `
     // La cita YA NO se adivina desde el texto (antes se guardaba el mensaje entero como
     // si fuera la hora). Ahora la resuelve detectarCupoElegido contra la agenda real.
 
-    // Basic address detection (if it includes street words or specific formats and isn't a coordinate)
-    if ((textLower.includes('calle') || textLower.includes('avenida') || textLower.includes('pasaje') || textLower.includes('nro') || textLower.includes('n°')) && !textLower.includes('ubicacion:')) {
-      leadData.address = text;
-    }
+    // La dirección YA NO se adivina buscando "calle" o "avenida": esa heurística
+    // botaba direcciones tan comunes como "Antonio Duce 795, Niebla, Valdivia".
+    // Ahora la extrae extraerDatosConIA leyendo la conversación completa.
   }
 
   // Save registered lead to Firestore and local fallback JSON mock

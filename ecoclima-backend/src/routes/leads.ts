@@ -807,45 +807,60 @@ function optimizeRouteHelper(leads: any[]): any[] {
 // Helper to notify technician of assignment
 async function notifyTechnician(technicianName: string, leadPhone: string, leadDataUpdate: any) {
   try {
+    // Solo técnicos con número REAL verificado. Sin números de relleno.
     const techPhones: { [key: string]: string } = {
-      'francisco': '56990939188',
-      'felipe': '56911112222', // demo
-      'juan': '56933334444' // demo
+      'francisco': '56990939188'
     };
 
     const cleanName = technicianName.toLowerCase().trim();
     const techPhone = techPhones[cleanName];
     if (!techPhone) {
-      console.log(`[NOTIFICACIÓN TÉCNICO] No se encontró número registrado para el técnico: "${technicianName}"`);
+      console.log(`[NOTIFICACIÓN TÉCNICO] No hay número registrado para el técnico: "${technicianName}"`);
       return;
     }
 
-    // Try to retrieve the full lead info from local mock or database to build a complete notification
+    // La ficha se lee de FIRESTORE. Antes se leía de data_mock/clientes_leads.json,
+    // que en Cloud Run vive en un disco efímero y se borra en cada reinicio: por eso
+    // al técnico le llegaba "Dirección: No especificada" aunque el dato sí existiera.
     let fullLead: any = { phone: leadPhone, ...leadDataUpdate };
-    
-    try {
-      const mockLeadsPath = path.resolve(process.cwd(), 'data_mock', 'clientes_leads.json');
-      if (fs.existsSync(mockLeadsPath)) {
-        const mockData = JSON.parse(fs.readFileSync(mockLeadsPath, 'utf8'));
-        const found = mockData.find((item: any) => item.phone === leadPhone);
-        if (found) {
-          fullLead = { ...found, ...leadDataUpdate };
-        }
+
+    if (db) {
+      try {
+        const doc = await db.collection('leads').doc(leadPhone).get();
+        if (doc.exists) fullLead = { ...doc.data(), ...leadDataUpdate, phone: leadPhone };
+      } catch (err: any) {
+        console.error('Error leyendo el lead desde Firestore para avisar al técnico:', err.message);
       }
-    } catch (err) {
-      console.error('Error al leer el lead para la notificación del técnico:', err);
+    } else {
+      try {
+        const mockLeadsPath = path.resolve(process.cwd(), 'data_mock', 'clientes_leads.json');
+        if (fs.existsSync(mockLeadsPath)) {
+          const mockData = JSON.parse(fs.readFileSync(mockLeadsPath, 'utf8'));
+          const found = mockData.find((item: any) => item.phone === leadPhone);
+          if (found) fullLead = { ...found, ...leadDataUpdate };
+        }
+      } catch (err) {
+        console.error('Error al leer el lead para la notificación del técnico:', err);
+      }
     }
 
     const whatsappToken = process.env.WHATSAPP_TOKEN;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
 
+    const enlaceMapa = fullLead.latitude && fullLead.longitude
+      ? `https://www.google.com/maps/search/?api=1&query=${fullLead.latitude},${fullLead.longitude}`
+      : null;
+    const sinUbicacion = !fullLead.address && !enlaceMapa;
+
     const messageText = `Hola ${technicianName}, se te ha asignado una nueva visita técnica en Furtz Clima OS:\n\n` +
       `📞 Cliente: +${fullLead.phone}\n` +
       `🔧 Servicio: ${fullLead.service_type === 'installation' ? 'Instalación' : 'Mantenimiento'}\n` +
-      `📍 Dirección: ${fullLead.address || 'No especificada'}\n` +
+      `📍 Dirección: ${fullLead.address || 'no registrada'}\n` +
+      (enlaceMapa ? `🗺️ Ubicación GPS: ${enlaceMapa}\n` : '') +
       `📅 Fecha Cita: ${fullLead.appointment_time || 'Por definir'}\n` +
       `📐 Capacidad/Detalle: ${fullLead.calculated_btu || fullLead.installation_age || 'N/A'}\n` +
       `📝 Notas: ${fullLead.notes || 'Sin notas adicionales'}\n\n` +
+      (sinUbicacion ? `⚠️ Esta visita NO tiene dirección registrada. Contacta al cliente antes de salir.\n\n` : '') +
       `Por favor, ingresa al Módulo de Terreno para ejecutar la lista de chequeo y certificar la calidad del servicio.`;
 
     if (whatsappToken && phoneId) {
