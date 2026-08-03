@@ -15,9 +15,18 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Momento en que arrancó este contenedor. Sirve para saber si un despliegue ya
+// entró en producción: si `startedAt` es reciente, Cloud Run levantó una revisión nueva.
+const STARTED_AT = new Date();
+
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date() });
+  res.status(200).json({
+    status: 'OK',
+    timestamp: new Date(),
+    startedAt: STARTED_AT,
+    uptimeSeconds: Math.round(process.uptime())
+  });
 });
 
 // WhatsApp Webhook endpoint
