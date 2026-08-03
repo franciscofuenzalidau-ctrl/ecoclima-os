@@ -1928,45 +1928,42 @@ export default function App() {
 
             {/* ------------------------- Agenda semanal ------------------------- */}
             <div className="glass-panel p-6 flex flex-col gap-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <button
-                  onClick={() => setAgendaAbierta(a => !a)}
-                  className="flex items-center gap-2 text-left group"
-                >
-                  <span className={`text-slate-400 group-hover:text-cyan-300 transition-transform duration-200 ${agendaAbierta ? 'rotate-90' : ''}`}>
-                    ▶
-                  </span>
+              <div className="agenda-toolbar">
+                <button onClick={() => setAgendaAbierta(a => !a)} className="agenda-toggle">
+                  <span className={`agenda-flecha ${agendaAbierta ? 'abierta' : ''}`}>▶</span>
                   <div>
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                      <Calendar className="h-5 w-5 text-cyan-400" />
+                    <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Calendar className="h-5 w-5" style={{ color: '#22d3ee' }} />
                       {t('title_agenda', 'Agenda')}
                       {agenda && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <span className="agenda-chip">
                           {agenda.cupos.filter(c => c.ocupado).length} {t('lbl_booked', 'con cita')}
                         </span>
                       )}
                     </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <p className="modal-sub">
                       {t('desc_agenda', 'Lunes a viernes · 09:15 y 14:00 · el bot solo ofrece los cupos libres')}
                     </p>
                   </div>
                 </button>
 
-                <div className={`flex items-center gap-2 ${agendaAbierta ? '' : 'hidden'}`}>
+                <div style={{ display: agendaAbierta ? 'flex' : 'none', alignItems: 'center', gap: 8 }}>
                   <button
                     onClick={() => setSemana(s => Math.max(0, s - 1))}
                     disabled={semana === 0}
-                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-bold text-slate-300 hover:bg-white/10 transition disabled:opacity-30"
+                    className="agenda-btn"
+                    style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }}
                   >
                     ← {t('lbl_prev_week', 'Anterior')}
                   </button>
-                  <span className="text-xs text-slate-400 font-semibold min-w-[80px] text-center">
+                  <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, minWidth: 84, textAlign: 'center' }}>
                     {semana === 0 ? t('lbl_this_week', 'Esta semana') : `+${semana} ${t('lbl_weeks', 'sem')}`}
                   </span>
                   <button
                     onClick={() => setSemana(s => Math.min(5, s + 1))}
                     disabled={semana >= 5}
-                    className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs font-bold text-slate-300 hover:bg-white/10 transition disabled:opacity-30"
+                    className="agenda-btn"
+                    style={{ width: 'auto', padding: '6px 12px', fontSize: 11 }}
                   >
                     {t('lbl_next_week', 'Siguiente')} →
                   </button>
@@ -1974,14 +1971,11 @@ export default function App() {
               </div>
 
               {moviendo && agendaAbierta && (
-                <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
-                  <span className="text-xs text-amber-200 font-semibold">
+                <div className="agenda-aviso agenda-toolbar" style={{ color: '#fde68a' }}>
+                  <span style={{ fontWeight: 600 }}>
                     {t('lbl_moving', 'Moviendo la cita de')} +{moviendo.lead?.phone} — {t('lbl_pick_slot', 'elige el cupo libre de destino')}
                   </span>
-                  <button
-                    onClick={() => setMoviendo(null)}
-                    className="text-xs font-bold text-slate-300 hover:text-white px-2 py-1"
-                  >
+                  <button onClick={() => setMoviendo(null)} className="agenda-btn" style={{ width: 'auto', padding: '4px 10px' }}>
                     {t('lbl_cancel', 'Cancelar')}
                   </button>
                 </div>
@@ -2006,38 +2000,29 @@ export default function App() {
                   }
 
                   return (
-                    <div className="overflow-x-auto">
-                      <div className="grid grid-cols-5 gap-2 min-w-[640px]">
+                    <div className="agenda-scroll">
+                      <div className="agenda-grid">
                         {semanaActual.map(fecha => (
-                          <div key={fecha} className="flex flex-col gap-2">
-                            <div className={`text-center text-xs font-bold py-1.5 rounded-lg ${
-                              fecha === agenda.hoy
-                                ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-500/40'
-                                : 'text-slate-400'
-                            }`}>
+                          <div key={fecha} className="agenda-col">
+                            <div className={`agenda-dia ${fecha === agenda.hoy ? 'hoy' : ''}`}>
                               {tituloDeDia(fecha)}
-                              {fecha === agenda.hoy && <span className="block text-[9px] opacity-80">{t('lbl_today', 'HOY')}</span>}
+                              {fecha === agenda.hoy && <small>{t('lbl_today', 'HOY')}</small>}
                             </div>
 
                             {agenda.cupos.filter(c => c.date === fecha).map(cupo => (
                               cupo.ocupado && cupo.lead ? (
-                                <div
-                                  key={cupo.id}
-                                  className="p-2 rounded-xl bg-emerald-500/12 border border-emerald-500/30 flex flex-col gap-1"
-                                >
-                                  <div className="text-[11px] font-extrabold text-emerald-300">{cupo.time}</div>
-                                  <div className="text-[11px] text-slate-100 font-semibold truncate" title={`+${cupo.lead.phone}`}>
-                                    +{cupo.lead.phone}
-                                  </div>
-                                  <div className="text-[10px] text-slate-400 truncate">
+                                <div key={cupo.id} className="agenda-cupo ocupado">
+                                  <div className="agenda-hora">{cupo.time}</div>
+                                  <div className="agenda-dato" title={`+${cupo.lead.phone}`}>+{cupo.lead.phone}</div>
+                                  <div className="agenda-nota">
                                     {cupo.lead.service_type === 'installation' ? 'Instalación' : 'Mantención'}
                                     {cupo.lead.technician ? ` · ${cupo.lead.technician}` : ''}
                                   </div>
-                                  <div className="flex gap-1 mt-0.5">
+                                  <div className="agenda-acciones">
                                     <button
                                       onClick={() => setMoviendo(cupo)}
                                       disabled={guardandoCita}
-                                      className="flex-1 text-[10px] font-bold py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/15 transition disabled:opacity-40"
+                                      className="agenda-btn"
                                     >
                                       {t('lbl_move', 'Mover')}
                                     </button>
@@ -2048,27 +2033,26 @@ export default function App() {
                                         }
                                       }}
                                       disabled={guardandoCita}
-                                      className="flex-1 text-[10px] font-bold py-1 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 hover:bg-rose-500/25 transition disabled:opacity-40"
+                                      className="agenda-btn peligro"
                                     >
                                       {t('lbl_free', 'Liberar')}
                                     </button>
                                   </div>
                                 </div>
                               ) : cupo.reservado ? (
-                                <div
-                                  key={cupo.id}
-                                  className="p-2 rounded-xl bg-purple-500/12 border border-purple-500/30 flex flex-col gap-1"
-                                >
-                                  <div className="text-[11px] font-extrabold text-purple-300 flex items-center gap-1">
-                                    <Lock className="h-3 w-3" /> {cupo.time}
+                                <div key={cupo.id} className="agenda-cupo reservado">
+                                  <div className="agenda-hora">
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      <Lock className="h-3 w-3" /> {cupo.time}
+                                    </span>
                                   </div>
-                                  <div className="text-[10px] text-purple-200/90 truncate" title={cupo.motivoReserva || ''}>
+                                  <div className="agenda-nota" title={cupo.motivoReserva || ''}>
                                     {cupo.motivoReserva || t('lbl_reserved', 'Reservado')}
                                   </div>
                                   <button
                                     onClick={() => soltarReserva(cupo)}
                                     disabled={guardandoCita}
-                                    className="text-[10px] font-bold py-1 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/15 transition disabled:opacity-40"
+                                    className="agenda-btn"
                                   >
                                     {t('lbl_release', 'Soltar')}
                                   </button>
@@ -2076,23 +2060,15 @@ export default function App() {
                               ) : (
                                 <div
                                   key={cupo.id}
-                                  className={`p-2 rounded-xl border flex flex-col gap-1 transition ${
-                                    moviendo
-                                      ? 'bg-amber-500/10 border-amber-500/40'
-                                      : cupo.esExtra
-                                        ? 'bg-cyan-500/[0.06] border-cyan-500/20'
-                                        : 'bg-white/[0.03] border-white/8'
-                                  }`}
+                                  className={`agenda-cupo ${moviendo ? 'destino' : cupo.esExtra ? 'extra' : 'libre'}`}
                                 >
-                                  <div className={`text-[11px] font-extrabold flex items-center justify-between ${
-                                    moviendo ? 'text-amber-200' : cupo.esExtra ? 'text-cyan-300' : 'text-slate-500'
-                                  }`}>
+                                  <div className="agenda-hora">
                                     <span>{cupo.time}{cupo.esExtra && ' +'}</span>
                                     {cupo.esExtra && !moviendo && (
                                       <button
                                         onClick={() => quitarHorario(cupo)}
                                         disabled={guardandoCita}
-                                        className="text-slate-500 hover:text-rose-400 transition disabled:opacity-40"
+                                        className="agenda-quitar"
                                         title={t('tip_remove_slot', 'Quitar este horario extra')}
                                       >
                                         <X className="h-3 w-3" />
@@ -2104,7 +2080,7 @@ export default function App() {
                                     <button
                                       onClick={() => moverCita(moviendo.lead!.phone, cupo.id)}
                                       disabled={guardandoCita}
-                                      className="text-[10px] font-bold py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-100 hover:bg-amber-500/35 transition disabled:opacity-40"
+                                      className="agenda-btn destino"
                                     >
                                       {t('lbl_put_here', 'Poner aquí')}
                                     </button>
@@ -2112,7 +2088,7 @@ export default function App() {
                                     <button
                                       onClick={() => reservarCupo(cupo)}
                                       disabled={guardandoCita}
-                                      className="text-[10px] font-semibold py-1 rounded-lg text-slate-500 hover:text-purple-300 hover:bg-purple-500/15 transition disabled:opacity-40"
+                                      className="agenda-btn suave"
                                     >
                                       {t('lbl_reserve', 'Reservar')}
                                     </button>
@@ -2124,7 +2100,7 @@ export default function App() {
                             <button
                               onClick={() => agregarHorario(fecha)}
                               disabled={guardandoCita}
-                              className="text-[10px] font-bold py-1.5 rounded-xl border border-dashed border-white/15 text-slate-500 hover:text-cyan-300 hover:border-cyan-500/40 transition disabled:opacity-40"
+                              className="agenda-btn agregar"
                               title={t('tip_add_slot', 'Agregar un horario extra a este día')}
                             >
                               + {t('lbl_add_slot', 'horario')}
@@ -2322,7 +2298,7 @@ export default function App() {
                             </div>
                           </td>
                           <td className="py-4 pr-4 text-right">
-                            <div className="flex flex-col items-end gap-2">
+                            <div className="fila-acciones">
                               <select
                                 value={lead.status || 'Pendiente'}
                                 onChange={(e) => handleStatusChange(lead.phone, e.target.value)}
@@ -2338,28 +2314,22 @@ export default function App() {
                                 <option value="__send_survey">⭐ {t('opt_send_survey', 'Enviar encuesta de satisfacción')}</option>
                               </select>
 
-                              <div className="flex items-center gap-1.5">
+                              <div className="fila-iconos">
                                 <button
                                   onClick={() => setChatLead(lead)}
-                                  className="relative flex items-center justify-center h-8 w-8 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/30 transition active:scale-95"
+                                  className="icono-btn chat"
                                   title={t('tip_view_chat', 'Ver la conversación con el cliente')}
                                 >
                                   <MessageSquare className="h-4 w-4" />
                                   {lead.conversation && lead.conversation.length > 0 && (
-                                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-cyan-400 text-[9px] font-bold text-slate-900 flex items-center justify-center">
-                                      {lead.conversation.length}
-                                    </span>
+                                    <span className="icono-badge">{lead.conversation.length}</span>
                                   )}
                                 </button>
 
                                 <button
                                   onClick={() => handleSendSurvey(lead.phone)}
                                   disabled={sendingSurveyTo === lead.phone}
-                                  className={`flex items-center justify-center h-8 w-8 rounded-xl border transition active:scale-95 ${
-                                    lead.satisfaction_rating
-                                      ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                                      : 'bg-slate-500/15 border-slate-500/30 text-slate-300 hover:bg-amber-500/25 hover:text-amber-300'
-                                  } disabled:opacity-40`}
+                                  className={`icono-btn encuesta ${lead.satisfaction_rating ? 'lista' : ''}`}
                                   title={t('tip_send_survey', 'Enviar al cliente la forma de pago y la encuesta')}
                                 >
                                   {sendingSurveyTo === lead.phone
@@ -2370,7 +2340,7 @@ export default function App() {
                                 <button
                                   onClick={() => handleDeleteLead(lead)}
                                   disabled={deletingPhone === lead.phone}
-                                  className="flex items-center justify-center h-8 w-8 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-400 hover:bg-rose-500/25 hover:text-rose-300 transition active:scale-95 disabled:opacity-40"
+                                  className="icono-btn borrar"
                                   title={t('tip_delete_lead', 'Eliminar esta ficha (chats de prueba)')}
                                 >
                                   {deletingPhone === lead.phone
@@ -3547,85 +3517,60 @@ export default function App() {
 
       {/* Modal de conversación del cliente */}
       {chatLead && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
-          onClick={() => setChatLead(null)}
-        >
-          <div
-            className="bg-slate-900 border border-cyan-500/25 rounded-2xl w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 p-5 border-b border-slate-700/70">
+        <div className="modal-overlay" onClick={() => setChatLead(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
               <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <MessageSquare className="h-5 w-5 text-cyan-400" />
+                <h3>
+                  <MessageSquare className="h-5 w-5" style={{ color: '#22d3ee' }} />
                   +{chatLead.phone}
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="modal-sub">
                   {chatLead.service_type === 'installation' ? 'Instalación' : chatLead.service_type === 'maintenance' ? 'Mantención' : 'Servicio sin definir'}
                   {chatLead.client_type ? ` · ${chatLead.client_type}` : ''}
                   {chatLead.payment_method ? ` · Paga con ${chatLead.payment_method}` : ''}
+                  {chatLead.appointment_time ? ` · Cita: ${chatLead.appointment_time}` : ''}
                 </p>
               </div>
-              <button
-                onClick={() => setChatLead(null)}
-                className="text-slate-400 hover:text-white transition shrink-0"
-              >
+              <button className="modal-cerrar" onClick={() => setChatLead(null)} aria-label="Cerrar">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {(chatLead.satisfaction_rating || chatLead.satisfaction_comment) && (
-              <div className="mx-5 mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/25">
-                <div className="flex items-center gap-2 text-amber-300 text-xs font-bold">
+              <div className="chat-encuesta">
+                <div className="chat-encuesta-titulo">
                   <Star className="h-4 w-4" />
                   Encuesta de satisfacción
-                  {chatLead.satisfaction_rating && (
-                    <span className="ml-1 text-sm">{chatLead.satisfaction_rating}/7</span>
-                  )}
+                  {chatLead.satisfaction_rating && <span>{chatLead.satisfaction_rating}/7</span>}
                 </div>
-                {chatLead.satisfaction_comment && (
-                  <p className="text-xs text-slate-200 mt-2 whitespace-pre-line leading-relaxed">
-                    {chatLead.satisfaction_comment}
-                  </p>
-                )}
+                {chatLead.satisfaction_comment && <p>{chatLead.satisfaction_comment}</p>}
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar">
+            <div className="modal-body">
               {chatLead.conversation && chatLead.conversation.length > 0 ? (
                 chatLead.conversation.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`flex ${msg.role === 'user' ? 'justify-start' : 'justify-end'}`}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm whitespace-pre-line leading-relaxed ${
-                        msg.role === 'user'
-                          ? 'bg-slate-800 text-slate-100 border border-slate-700'
-                          : 'bg-cyan-500/15 text-cyan-50 border border-cyan-500/25'
-                      }`}
-                    >
-                      <div className={`text-[10px] font-bold mb-1 ${msg.role === 'user' ? 'text-slate-400' : 'text-cyan-400'}`}>
-                        {msg.role === 'user' ? 'Cliente' : 'Bot'}
-                      </div>
+                  <div key={i} className={`chat-fila ${msg.role === 'user' ? 'cliente' : 'bot'}`}>
+                    <div className={`chat-burbuja ${msg.role === 'user' ? 'cliente' : 'bot'}`}>
+                      <div className="chat-autor">{msg.role === 'user' ? 'Cliente' : 'Bot'}</div>
                       {msg.text}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-center text-slate-400 text-sm italic py-10">
+                <div className="chat-vacio">
                   Todavía no hay conversación guardada para este cliente.
                 </div>
               )}
             </div>
 
-            <div className="p-4 border-t border-slate-700/70 flex items-center justify-between gap-3">
+            <div className="modal-footer">
               <a
                 href={`https://wa.me/${chatLead.phone}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 transition font-semibold"
+                style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#34d399', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
               >
                 <Phone className="h-4 w-4" />
                 Escribirle por WhatsApp
@@ -3633,7 +3578,8 @@ export default function App() {
               <button
                 onClick={() => handleSendSurvey(chatLead.phone)}
                 disabled={sendingSurveyTo === chatLead.phone}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-amber-500/20 border border-amber-500/35 text-amber-200 text-sm font-semibold hover:bg-amber-500/30 transition active:scale-95 disabled:opacity-40"
+                className="agenda-btn destino"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, width: 'auto', padding: '8px 14px', fontSize: 13 }}
               >
                 {sendingSurveyTo === chatLead.phone
                   ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -3647,8 +3593,8 @@ export default function App() {
 
       {/* Guide Modal */}
       {showGuideModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl relative custom-scrollbar">
+        <div className="modal-overlay">
+          <div className="modal-panel ancho" style={{ overflowY: 'auto', display: 'block', position: 'relative' }}>
             <button
               onClick={() => setShowGuideModal(false)}
               className="absolute top-4 right-4 p-2 bg-white/5 hover:bg-white/10 rounded-full text-slate-400 hover:text-white transition"

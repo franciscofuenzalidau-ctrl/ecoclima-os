@@ -868,3 +868,318 @@ input[type=number] {
   box-shadow: inset 4px 0 8px -4px rgba(99, 102, 241, 0.45);
 }
 
+
+/* ============================================================================
+   Modal de conversaciÃ³n, agenda semanal y botones de acciÃ³n.
+
+   OJO: este proyecto NO usa Tailwind. Las clases tipo "fixed", "z-50" o
+   "grid-cols-5" que aparecen en el JSX no existen en ninguna hoja de estilos,
+   asÃ­ que no hacen nada. Todo lo que necesite posicionamiento real tiene que
+   tener su clase escrita aquÃ­.
+   ========================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+.modal-panel {
+  background: #0b1220;
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 640px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.modal-panel.ancho { max-width: 780px; }
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  flex-shrink: 0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-sub { margin: 4px 0 0; font-size: 12px; color: #94a3b8; }
+
+.modal-cerrar {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  flex-shrink: 0;
+}
+.modal-cerrar:hover { color: #fff; }
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-footer {
+  padding: 14px 18px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.chat-encuesta {
+  margin: 16px 20px 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  flex-shrink: 0;
+}
+.chat-encuesta-titulo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fcd34d;
+}
+.chat-encuesta p { margin: 8px 0 0; font-size: 12px; color: #e2e8f0; white-space: pre-line; }
+
+.chat-fila { display: flex; }
+.chat-fila.cliente { justify-content: flex-start; }
+.chat-fila.bot { justify-content: flex-end; }
+
+.chat-burbuja {
+  max-width: 80%;
+  border-radius: 16px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.chat-burbuja.cliente { background: #1e293b; border: 1px solid #334155; color: #f1f5f9; }
+.chat-burbuja.bot { background: rgba(6, 182, 212, 0.14); border: 1px solid rgba(6, 182, 212, 0.28); color: #e0f2fe; }
+.chat-autor { font-size: 10px; font-weight: 800; margin-bottom: 4px; opacity: 0.7; }
+.chat-vacio { text-align: center; color: #64748b; font-size: 13px; font-style: italic; padding: 40px 0; }
+
+/* ---------------------------- Agenda semanal ---------------------------- */
+
+.agenda-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agenda-scroll { overflow-x: auto; }
+
+.agenda-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(128px, 1fr));
+  gap: 8px;
+  min-width: 660px;
+}
+
+.agenda-col { display: flex; flex-direction: column; gap: 8px; }
+
+.agenda-dia {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 4px;
+  border-radius: 8px;
+  color: #94a3b8;
+}
+.agenda-dia.hoy {
+  background: rgba(6, 182, 212, 0.2);
+  color: #a5f3fc;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+}
+.agenda-dia small { display: block; font-size: 9px; opacity: 0.8; }
+
+.agenda-cupo {
+  padding: 8px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid transparent;
+}
+.agenda-cupo.ocupado   { background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.3); }
+.agenda-cupo.libre     { background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.08); }
+.agenda-cupo.reservado { background: rgba(168, 85, 247, 0.12); border-color: rgba(168, 85, 247, 0.32); }
+.agenda-cupo.destino   { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.4); }
+.agenda-cupo.extra     { background: rgba(6, 182, 212, 0.07); border-color: rgba(6, 182, 212, 0.22); }
+
+.agenda-hora {
+  font-size: 11px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.agenda-cupo.ocupado   .agenda-hora { color: #6ee7b7; }
+.agenda-cupo.libre     .agenda-hora { color: #64748b; }
+.agenda-cupo.reservado .agenda-hora { color: #d8b4fe; }
+.agenda-cupo.destino   .agenda-hora { color: #fcd34d; }
+.agenda-cupo.extra     .agenda-hora { color: #67e8f9; }
+
+.agenda-dato {
+  font-size: 11px;
+  color: #e2e8f0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agenda-nota {
+  font-size: 10px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-acciones { display: flex; gap: 4px; }
+.agenda-acciones > button { flex: 1; }
+
+.agenda-btn {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  width: 100%;
+}
+.agenda-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
+.agenda-btn:disabled { opacity: 0.4; cursor: default; }
+.agenda-btn.peligro { background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.3); color: #fda4af; }
+.agenda-btn.peligro:hover:not(:disabled) { background: rgba(244, 63, 94, 0.25); }
+.agenda-btn.destino { background: rgba(245, 158, 11, 0.22); border-color: rgba(245, 158, 11, 0.45); color: #fef3c7; }
+.agenda-btn.suave { background: none; border-color: transparent; color: #64748b; }
+.agenda-btn.suave:hover:not(:disabled) { background: rgba(168, 85, 247, 0.15); color: #d8b4fe; }
+.agenda-btn.agregar { border-style: dashed; border-color: rgba(255, 255, 255, 0.15); color: #64748b; padding: 6px; }
+.agenda-btn.agregar:hover:not(:disabled) { color: #67e8f9; border-color: rgba(6, 182, 212, 0.4); }
+
+.agenda-quitar {
+  background: none;
+  border: none;
+  color: #475569;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+}
+.agenda-quitar:hover { color: #fb7185; }
+
+.agenda-aviso {
+  font-size: 11px;
+  color: rgba(252, 211, 77, 0.9);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.agenda-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  color: inherit;
+}
+.agenda-flecha { color: #64748b; transition: transform 0.2s ease; display: inline-block; }
+.agenda-flecha.abierta { transform: rotate(90deg); }
+
+.agenda-chip {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* ------------------ Botones de acciÃ³n en la tabla de leads ------------------ */
+
+.fila-acciones { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.fila-iconos { display: flex; align-items: center; gap: 6px; }
+
+.icono-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  width: 32px;
+  border-radius: 10px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.icono-btn:disabled { opacity: 0.4; cursor: default; }
+.icono-btn.chat     { background: rgba(6, 182, 212, 0.15); border-color: rgba(6, 182, 212, 0.3); color: #67e8f9; }
+.icono-btn.chat:hover:not(:disabled) { background: rgba(6, 182, 212, 0.3); }
+.icono-btn.encuesta { background: rgba(148, 163, 184, 0.12); border-color: rgba(148, 163, 184, 0.25); color: #cbd5e1; }
+.icono-btn.encuesta:hover:not(:disabled) { background: rgba(245, 158, 11, 0.25); color: #fcd34d; }
+.icono-btn.encuesta.lista { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.4); color: #fcd34d; }
+.icono-btn.borrar   { background: rgba(244, 63, 94, 0.1); border-color: rgba(244, 63, 94, 0.25); color: #fb7185; }
+.icono-btn.borrar:hover:not(:disabled) { background: rgba(244, 63, 94, 0.25); color: #fda4af; }
+
+.icono-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #22d3ee;
+  color: #0f172a;
+  font-size: 9px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
