@@ -57,11 +57,16 @@ interface Lead {
   last_message_at?: string;
 }
 
-// Teléfonos de técnicos con número REAL verificado. No agregar números de relleno:
-// si el técnico no está aquí, simplemente no se muestra el botón de WhatsApp.
-const TECHNICIAN_PHONES: Record<string, string> = {
-  francisco: '56990939188'
-};
+// Técnicos que se pueden asignar, con su teléfono REAL verificado.
+// Para sumar un técnico: agrega una línea aquí con su nombre y su número.
+// No poner números de relleno: sin número, no aparece el botón de WhatsApp.
+const TECNICOS: Array<{ nombre: string; telefono: string }> = [
+  { nombre: 'Francisco', telefono: '56990939188' }
+];
+
+const TECHNICIAN_PHONES: Record<string, string> = Object.fromEntries(
+  TECNICOS.map(t => [t.nombre.toLowerCase(), t.telefono])
+);
 
 // --- Agenda -----------------------------------------------------------------
 // Solo existen dos cupos por día, de lunes a viernes. El backend es la autoridad:
@@ -2266,13 +2271,21 @@ export default function App() {
                           </td>
                           <td className="py-4 px-2">
                             <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                placeholder={t('ph_technician', 'Técnico')}
+                              <select
                                 value={lead.technician || ''}
                                 onChange={(e) => handleTechnicianChange(lead.phone, e.target.value)}
-                                className="tech-input-field"
-                              />
+                                className="tech-select-field"
+                              >
+                                <option value="">{t('opt_unassigned', 'Sin asignar')}</option>
+                                {TECNICOS.map(tec => (
+                                  <option key={tec.nombre} value={tec.nombre}>{tec.nombre}</option>
+                                ))}
+                                {/* Si la ficha traía un nombre que ya no está en la lista, no se pierde. */}
+                                {lead.technician &&
+                                  !TECNICOS.some(tec => tec.nombre.toLowerCase() === lead.technician!.toLowerCase()) && (
+                                    <option value={lead.technician}>{lead.technician}</option>
+                                  )}
+                              </select>
                               {lead.technician && TECHNICIAN_PHONES[lead.technician.toLowerCase().trim()] && (
                                 <a
                                   href={`https://wa.me/${
@@ -2385,15 +2398,17 @@ export default function App() {
                       setActiveTech(e.target.value);
                       setSelectedLeadForTech(null);
                     }}
-                    className="w-full px-3 py-2 bg-slate-900/60 border border-white/10 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-500/20"
+                    className="tech-select-field"
                   >
                     <option value="">{t('opt_select_technician', 'Seleccionar Técnico...')}</option>
-                    {Array.from(new Set(leads.map(l => l.technician).filter(Boolean))).map(tech => (
+                    {Array.from(
+                      new Set([
+                        ...TECNICOS.map(tec => tec.nombre),
+                        ...(leads.map(l => l.technician).filter(Boolean) as string[])
+                      ])
+                    ).map(tech => (
                       <option key={tech} value={tech}>{tech}</option>
                     ))}
-                    <option value="Felipe">Felipe (Demo)</option>
-                    <option value="Juan">Juan (Demo)</option>
-                    <option value="Francisco">Francisco (Demo)</option>
                   </select>
                 </div>
 

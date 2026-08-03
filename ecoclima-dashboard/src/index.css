@@ -1183,3 +1183,24 @@ input[type=number] {
   justify-content: center;
 }
 
+
+/* Desplegable de asignaciÃ³n de tÃ©cnico. Mismo look que .tech-input-field,
+   que era un campo de texto libre antes de pasar a lista cerrada. */
+.tech-select-field {
+  background-color: rgba(2, 6, 23, 0.6);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #ffffff;
+  outline: none;
+  width: 130px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.tech-select-field:hover { border-color: rgba(34, 211, 238, 0.35); }
+.tech-select-field:focus { border-color: rgba(34, 211, 238, 0.5); }
+.tech-select-field option { background-color: #0b1220; color: #ffffff; }
+
