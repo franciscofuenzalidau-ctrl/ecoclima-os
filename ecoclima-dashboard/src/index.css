@@ -1204,3 +1204,31 @@ input[type=number] {
 .tech-select-field:focus { border-color: rgba(34, 211, 238, 0.5); }
 .tech-select-field option { background-color: #0b1220; color: #ffffff; }
 
+
+/* Mapa de clientes (OpenStreetMap, sin clave de API). */
+.mapa-clientes {
+  flex: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+  min-height: 240px;
+  background: rgba(2, 6, 23, 0.5);
+}
+
+.mapa-clientes iframe { display: block; width: 100%; height: 100%; }
+
+.mapa-vacio {
+  height: 100%;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+

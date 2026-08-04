@@ -98,14 +98,18 @@ interface AgendaResponse {
   fueraDeAgenda: Array<{ id: string; phone: string; status: string }>;
 }
 
-const DIAS_CORTOS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-
-/** Encabezado de una columna del calendario: "Lun 4 ago". */
-const tituloDeDia = (fecha: string) => {
+/**
+ * Encabezado de una columna del calendario, en el idioma que esté activo:
+ * "lun, 4 ago" en español · "Mon, Aug 4" en inglés.
+ */
+const tituloDeDia = (fecha: string, idioma: 'es' | 'en' = 'es') => {
   const [y, m, d] = fecha.split('-').map(Number);
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return `${DIAS_CORTOS[dow]} ${d} ${MESES_CORTOS[m - 1]}`;
+  return new Intl.DateTimeFormat(idioma === 'en' ? 'en-US' : 'es-CL', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC'
+  }).format(new Date(Date.UTC(y, m - 1, d)));
 };
 
 const getBackendUrl = () => {
@@ -212,6 +216,49 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     lbl_dynamic_map: "Mapa Dinámico de Clientes",
     lbl_install_action: "Instalar",
     lbl_maintenance_action: "Mantención",
+
+    // Agenda semanal
+    title_agenda: "Agenda",
+    desc_agenda: "Lunes a viernes · 09:15 y 14:00 · el bot solo ofrece los cupos libres",
+    lbl_booked: "con cita",
+    lbl_prev_week: "Anterior",
+    lbl_next_week: "Siguiente",
+    lbl_this_week: "Esta semana",
+    lbl_weeks: "sem",
+    lbl_today: "HOY",
+    lbl_loading_agenda: "Cargando la agenda...",
+    lbl_no_slots: "No hay más cupos en este rango.",
+    lbl_moving: "Moviendo la cita de",
+    lbl_pick_slot: "elige el cupo libre de destino",
+    lbl_cancel: "Cancelar",
+    lbl_move: "Mover",
+    lbl_free: "Liberar",
+    lbl_reserve: "Reservar",
+    lbl_reserved: "Reservado",
+    lbl_release: "Soltar",
+    lbl_put_here: "Poner aquí",
+    lbl_add_slot: "horario",
+    tip_add_slot: "Agregar un horario extra a este día",
+    tip_remove_slot: "Quitar este horario extra",
+    warn_out_of_range: "cita(s) fuera del rango mostrado",
+    tip_view_chat: "Ver la conversación con el cliente",
+    tip_send_survey: "Enviar al cliente la forma de pago y la encuesta",
+    tip_delete_lead: "Eliminar esta ficha (chats de prueba)",
+    opt_send_survey: "Enviar encuesta de satisfacción",
+    opt_unassigned: "Sin asignar",
+
+    // Modal de conversación
+    chat_service_installation: "Instalación",
+    chat_service_maintenance: "Mantención",
+    chat_service_undefined: "Servicio sin definir",
+    chat_pays_with: "Paga con",
+    chat_appointment: "Cita",
+    chat_survey_title: "Encuesta de satisfacción",
+    chat_customer: "Cliente",
+    chat_bot: "Bot",
+    chat_empty: "Todavía no hay conversación guardada para este cliente.",
+    chat_write_whatsapp: "Escribirle por WhatsApp",
+    chat_send_survey: "Enviar encuesta",
 
     // Slide 2 (Leads Management)
     slide_3_badge: "DIAPOSITIVA 3: OPERACIONES",
@@ -461,6 +508,49 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     lbl_dynamic_map: "Dynamic Customer Map",
     lbl_install_action: "Install",
     lbl_maintenance_action: "Maintenance",
+
+    // Weekly schedule
+    title_agenda: "Schedule",
+    desc_agenda: "Monday to Friday · 09:15 and 14:00 · the agent only offers open slots",
+    lbl_booked: "booked",
+    lbl_prev_week: "Previous",
+    lbl_next_week: "Next",
+    lbl_this_week: "This week",
+    lbl_weeks: "wk",
+    lbl_today: "TODAY",
+    lbl_loading_agenda: "Loading schedule...",
+    lbl_no_slots: "No more slots in this range.",
+    lbl_moving: "Moving the appointment of",
+    lbl_pick_slot: "pick the open slot to move it to",
+    lbl_cancel: "Cancel",
+    lbl_move: "Move",
+    lbl_free: "Release",
+    lbl_reserve: "Hold",
+    lbl_reserved: "Held",
+    lbl_release: "Free up",
+    lbl_put_here: "Move here",
+    lbl_add_slot: "slot",
+    tip_add_slot: "Add an extra slot to this day",
+    tip_remove_slot: "Remove this extra slot",
+    warn_out_of_range: "appointment(s) outside the range shown",
+    tip_view_chat: "View the conversation with the customer",
+    tip_send_survey: "Send the customer the payment question and the survey",
+    tip_delete_lead: "Delete this record (test chats)",
+    opt_send_survey: "Send satisfaction survey",
+    opt_unassigned: "Unassigned",
+
+    // Conversation modal
+    chat_service_installation: "Installation",
+    chat_service_maintenance: "Maintenance",
+    chat_service_undefined: "Service not defined",
+    chat_pays_with: "Pays with",
+    chat_appointment: "Appointment",
+    chat_survey_title: "Satisfaction survey",
+    chat_customer: "Customer",
+    chat_bot: "Agent",
+    chat_empty: "No conversation saved for this customer yet.",
+    chat_write_whatsapp: "Message on WhatsApp",
+    chat_send_survey: "Send survey",
 
     // Slide 2 (Leads Management)
     slide_3_badge: "SLIDE 3: OPERATIONS",
@@ -1245,7 +1335,7 @@ export default function App() {
   // Agrega un horario extra a un día, fuera de los dos base.
   const agregarHorario = async (fecha: string) => {
     const hora = window.prompt(
-      `Agregar un horario extra al ${tituloDeDia(fecha)}\n\nEscríbelo en formato 24 horas, por ejemplo 16:30`,
+      `Agregar un horario extra al ${tituloDeDia(fecha, language)}\n\nEscríbelo en formato 24 horas, por ejemplo 16:30`,
       '16:00'
     );
     if (!hora) return;
@@ -1903,15 +1993,45 @@ export default function App() {
                   <MapPin className="h-5 w-5 text-purple-400" />
                   {t('lbl_dynamic_map', 'Mapa Dinámico de Clientes')}
                 </h3>
-                <div className="flex-1 rounded-xl overflow-hidden border border-white/10 relative">
-                  <iframe
-                    width="100%"
-                    height="100%"
-                    style={{ border: 0 }}
-                    loading="lazy"
-                    allowFullScreen
-                    src={`https://www.google.com/maps/embed/v1/search?key=${import.meta.env.VITE_GOOGLE_MAPS_KEY || ''}&q=Niebla,Valdivia,Chile`}
-                  ></iframe>
+                {/* Mapa sin clave de API.
+                    Antes esto era un embed de Google Maps con VITE_GOOGLE_MAPS_KEY, que
+                    nunca se configuró: el panel mostraba "Google Maps Platform rejected
+                    your request". Ponerle la clave aquí la dejaría visible en el código
+                    público de la página, así que se usa OpenStreetMap, que no pide clave. */}
+                <div className="mapa-clientes">
+                  {(() => {
+                    const conGps = optimizedRoute.filter(p => p.latitude && p.longitude);
+
+                    if (conGps.length === 0) {
+                      return (
+                        <div className="mapa-vacio">
+                          <MapPin className="h-6 w-6" />
+                          <span>{t('lbl_no_geolocations', 'No hay ubicaciones registradas todavía.')}</span>
+                        </div>
+                      );
+                    }
+
+                    const lats = conGps.map(p => Number(p.latitude));
+                    const lons = conGps.map(p => Number(p.longitude));
+                    const margen = 0.02;
+                    const bbox = [
+                      Math.min(...lons) - margen,
+                      Math.min(...lats) - margen,
+                      Math.max(...lons) + margen,
+                      Math.max(...lats) + margen
+                    ].join(',');
+
+                    return (
+                      <iframe
+                        title={t('lbl_dynamic_map', 'Mapa Dinámico de Clientes')}
+                        width="100%"
+                        height="100%"
+                        style={{ border: 0, minHeight: 240 }}
+                        loading="lazy"
+                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lats[0]},${lons[0]}`}
+                      />
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -2010,7 +2130,7 @@ export default function App() {
                         {semanaActual.map(fecha => (
                           <div key={fecha} className="agenda-col">
                             <div className={`agenda-dia ${fecha === agenda.hoy ? 'hoy' : ''}`}>
-                              {tituloDeDia(fecha)}
+                              {tituloDeDia(fecha, language)}
                               {fecha === agenda.hoy && <small>{t('lbl_today', 'HOY')}</small>}
                             </div>
 
@@ -3541,10 +3661,14 @@ export default function App() {
                   +{chatLead.phone}
                 </h3>
                 <p className="modal-sub">
-                  {chatLead.service_type === 'installation' ? 'Instalación' : chatLead.service_type === 'maintenance' ? 'Mantención' : 'Servicio sin definir'}
+                  {chatLead.service_type === 'installation'
+                    ? t('chat_service_installation', 'Instalación')
+                    : chatLead.service_type === 'maintenance'
+                      ? t('chat_service_maintenance', 'Mantención')
+                      : t('chat_service_undefined', 'Servicio sin definir')}
                   {chatLead.client_type ? ` · ${chatLead.client_type}` : ''}
-                  {chatLead.payment_method ? ` · Paga con ${chatLead.payment_method}` : ''}
-                  {chatLead.appointment_time ? ` · Cita: ${chatLead.appointment_time}` : ''}
+                  {chatLead.payment_method ? ` · ${t('chat_pays_with', 'Paga con')} ${chatLead.payment_method}` : ''}
+                  {chatLead.appointment_time ? ` · ${t('chat_appointment', 'Cita')}: ${chatLead.appointment_time}` : ''}
                 </p>
               </div>
               <button className="modal-cerrar" onClick={() => setChatLead(null)} aria-label="Cerrar">
@@ -3556,7 +3680,7 @@ export default function App() {
               <div className="chat-encuesta">
                 <div className="chat-encuesta-titulo">
                   <Star className="h-4 w-4" />
-                  Encuesta de satisfacción
+                  {t('chat_survey_title', 'Encuesta de satisfacción')}
                   {chatLead.satisfaction_rating && <span>{chatLead.satisfaction_rating}/7</span>}
                 </div>
                 {chatLead.satisfaction_comment && <p>{chatLead.satisfaction_comment}</p>}
@@ -3568,14 +3692,16 @@ export default function App() {
                 chatLead.conversation.map((msg, i) => (
                   <div key={i} className={`chat-fila ${msg.role === 'user' ? 'cliente' : 'bot'}`}>
                     <div className={`chat-burbuja ${msg.role === 'user' ? 'cliente' : 'bot'}`}>
-                      <div className="chat-autor">{msg.role === 'user' ? 'Cliente' : 'Bot'}</div>
+                      <div className="chat-autor">
+                        {msg.role === 'user' ? t('chat_customer', 'Cliente') : t('chat_bot', 'Bot')}
+                      </div>
                       {msg.text}
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="chat-vacio">
-                  Todavía no hay conversación guardada para este cliente.
+                  {t('chat_empty', 'Todavía no hay conversación guardada para este cliente.')}
                 </div>
               )}
             </div>
@@ -3588,7 +3714,7 @@ export default function App() {
                 style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#34d399', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
               >
                 <Phone className="h-4 w-4" />
-                Escribirle por WhatsApp
+                {t('chat_write_whatsapp', 'Escribirle por WhatsApp')}
               </a>
               <button
                 onClick={() => handleSendSurvey(chatLead.phone)}
@@ -3599,7 +3725,7 @@ export default function App() {
                 {sendingSurveyTo === chatLead.phone
                   ? <Loader2 className="h-4 w-4 animate-spin" />
                   : <Star className="h-4 w-4" />}
-                Enviar encuesta
+                {t('chat_send_survey', 'Enviar encuesta')}
               </button>
             </div>
           </div>
