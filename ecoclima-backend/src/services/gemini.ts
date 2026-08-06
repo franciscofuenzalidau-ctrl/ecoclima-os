@@ -387,9 +387,34 @@ export class GeminiService {
       ? disponibles.slice(0, 8).map(c => `- ${c.label}`).join('\n')
       : 'NO HAY CUPOS LIBRES. Deriva al cliente a la ejecutiva.';
 
+    // Lo que ya sabemos de este cliente (de conversaciones anteriores o de su ficha).
+    // Se lo pasamos al modelo para que no vuelva a preguntar lo mismo, sobre todo
+    // cuando vuelve un año después por el recordatorio de mantención.
+    const d = session.leadData;
+    const datosConocidos = [
+      d.client_type ? `- Es ${d.client_type}` : null,
+      d.service_type ? `- Servicio: ${d.service_type === 'installation' ? 'Instalación' : 'Mantención'}` : null,
+      d.address ? `- Dirección registrada: ${d.address}` : null,
+      d.installation_age ? `- Antigüedad del equipo: ${d.installation_age}` : null,
+      d.last_maintenance_info ? `- Última mantención: ${d.last_maintenance_info}` : null,
+      d.equipment_count ? `- Cantidad de equipos: ${d.equipment_count}` : null,
+      d.calculated_btu ? `- Capacidad: ${d.calculated_btu}` : null
+    ].filter(Boolean).join('\n');
+
     // Process normal message with Gemini
     const systemInstruction = `
 Eres el asistente virtual oficial de Furtz Clima. Tu objetivo es atender amablemente a los clientes ofreciendo y guiando a través de nuestras dos opciones principales: MANTENIMIENTO PREVENTIVO o VENTA/INSTALACIÓN DE EQUIPOS NUEVOS.
+
+DATOS QUE YA TENEMOS DE ESTE CLIENTE — NO SE LOS VUELVAS A PREGUNTAR:
+${datosConocidos || 'Ninguno todavía: es un cliente nuevo.'}
+
+CLIENTE QUE VUELVE POR EL RECORDATORIO ANUAL:
+- Si en el historial ves que ya le ofrecimos la mantención preventiva anual y el cliente
+  responde que sí, que le interesa o que quiere agendar: NO reinicies el cuestionario ni
+  le preguntes qué servicio busca. Ya sabemos que es una mantención.
+- Confirma la dirección que tenemos registrada ("¿La visita sigue siendo en <dirección>?")
+  y pasa DIRECTO a ofrecerle los cupos disponibles de la agenda.
+- Solo pregunta lo que falte de la lista de arriba.
 
 SALUDO INICIAL (MUY IMPORTANTE):
 - Cuando el cliente te escriba por primera vez, debes presentarte y preguntarle explícitamente qué servicio busca, ofreciéndole estas dos opciones: 1) Mantenimiento Preventivo o 2) Venta/Instalación de Aire Acondicionado.

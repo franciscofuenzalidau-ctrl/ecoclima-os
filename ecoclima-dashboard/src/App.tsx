@@ -38,6 +38,8 @@ interface Lead {
   installation_age?: string;
   address?: string;
   appointment_time?: string;
+  /** Cupo del calendario: "YYYY-MM-DDTHH:mm". Si está vacío, el cliente no tiene hora. */
+  appointment_iso?: string | null;
   latitude?: number;
   longitude?: number;
   area_m2?: number;
@@ -246,6 +248,12 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     tip_delete_lead: "Eliminar esta ficha (chats de prueba)",
     opt_send_survey: "Enviar encuesta de satisfacción",
     opt_unassigned: "Sin asignar",
+    lbl_book_client: "Agendar",
+    tip_book_client: "Poner aquí un cliente ya registrado",
+    desc_book_client: "Elige un cliente registrado que todavía no tiene hora",
+    lbl_all_booked: "Todos los clientes registrados ya tienen hora asignada.",
+    lbl_no_address_short: "sin dirección",
+    tip_write_client: "Escribirle por WhatsApp",
 
     // Modal de conversación
     chat_service_installation: "Instalación",
@@ -538,6 +546,12 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     tip_delete_lead: "Delete this record (test chats)",
     opt_send_survey: "Send satisfaction survey",
     opt_unassigned: "Unassigned",
+    lbl_book_client: "Book",
+    tip_book_client: "Give this slot to an already registered customer",
+    desc_book_client: "Pick a registered customer who has no appointment yet",
+    lbl_all_booked: "Every registered customer already has an appointment.",
+    lbl_no_address_short: "no address",
+    tip_write_client: "Message on WhatsApp",
 
     // Conversation modal
     chat_service_installation: "Installation",
@@ -800,6 +814,8 @@ export default function App() {
   const [moviendo, setMoviendo] = useState<AgendaSlot | null>(null);
   const [guardandoCita, setGuardandoCita] = useState<boolean>(false);
   const [agendaAbierta, setAgendaAbierta] = useState<boolean>(true);
+  // Cupo libre en el que Pilar está por poner un cliente registrado a mano.
+  const [agendandoEn, setAgendandoEn] = useState<AgendaSlot | null>(null);
   const [showAddClientModal, setShowAddClientModal] = useState<boolean>(false);
   const [newClientName, setNewClientName] = useState<string>('');
   const [newClientPhone, setNewClientPhone] = useState<string>('');
@@ -896,7 +912,23 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        alert(t('success_campaign_sent', 'Campaña preventiva enviada con éxito a {count} clientes.').replace('{count}', String(data.count || 0)));
+        // Se informa lo que pasó de verdad: antes decía "enviada con éxito" aunque
+        // WhatsApp hubiera rechazado todos los mensajes.
+        const enviados = Number(data.count || 0);
+        const fallidos = Number(data.fallidos || 0);
+        const candidatos = Number(data.candidatos ?? enviados + fallidos);
+
+        let texto = `Clientes que cumplían el año: ${candidatos}\n` +
+                    `Mensajes entregados: ${enviados}\n` +
+                    `Rechazados: ${fallidos}`;
+
+        if (fallidos > 0) {
+          const motivo = data.errores?.[0]?.motivo || '';
+          texto += `\n\nMotivo del primer rechazo:\n${motivo}` +
+                   `\n\nSi el cliente no escribe hace más de 24 horas, Meta bloquea el mensaje ` +
+                   `hasta que exista una plantilla aprobada.`;
+        }
+        alert(texto);
         await fetchLeads(); // Refresh leads
       } else {
         alert(t('error_campaign', 'Error al enviar campaña:') + ' ' + (data.error || 'Intente nuevamente'));
@@ -2137,12 +2169,45 @@ export default function App() {
                             {agenda.cupos.filter(c => c.date === fecha).map(cupo => (
                               cupo.ocupado && cupo.lead ? (
                                 <div key={cupo.id} className="agenda-cupo ocupado">
-                                  <div className="agenda-hora">{cupo.time}</div>
-                                  <div className="agenda-dato" title={`+${cupo.lead.phone}`}>+{cupo.lead.phone}</div>
-                                  <div className="agenda-nota">
-                                    {cupo.lead.service_type === 'installation' ? 'Instalación' : 'Mantención'}
-                                    {cupo.lead.technician ? ` · ${cupo.lead.technician}` : ''}
+                                  <div className="agenda-hora">
+                                    <span>{cupo.time}</span>
+                                    <span className={`agenda-estado estado-${(cupo.lead.status || 'Pendiente').toLowerCase()}`}>
+                                      {cupo.lead.status || 'Pendiente'}
+                                    </span>
                                   </div>
+
+                                  {cupo.lead.client_name && (
+                                    <div className="agenda-dato" title={cupo.lead.client_name}>
+                                      {cupo.lead.client_name}
+                                    </div>
+                                  )}
+
+                                  <a
+                                    className="agenda-tel"
+                                    href={`https://wa.me/${cupo.lead.phone}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={t('tip_write_client', 'Escribirle por WhatsApp')}
+                                  >
+                                    +{cupo.lead.phone}
+                                  </a>
+
+                                  <div className="agenda-nota">
+                                    {cupo.lead.service_type === 'installation'
+                                      ? t('chat_service_installation', 'Instalación')
+                                      : t('chat_service_maintenance', 'Mantención')}
+                                  </div>
+
+                                  <div className="agenda-linea" title={cupo.lead.address || ''}>
+                                    <MapPin className="h-3 w-3" />
+                                    <span>{cupo.lead.address || t('lbl_no_address_short', 'sin dirección')}</span>
+                                  </div>
+
+                                  <div className="agenda-linea" title={cupo.lead.technician || ''}>
+                                    <Wrench className="h-3 w-3" />
+                                    <span>{cupo.lead.technician || t('opt_unassigned', 'Sin asignar')}</span>
+                                  </div>
+
                                   <div className="agenda-acciones">
                                     <button
                                       onClick={() => setMoviendo(cupo)}
@@ -2210,13 +2275,23 @@ export default function App() {
                                       {t('lbl_put_here', 'Poner aquí')}
                                     </button>
                                   ) : (
-                                    <button
-                                      onClick={() => reservarCupo(cupo)}
-                                      disabled={guardandoCita}
-                                      className="agenda-btn suave"
-                                    >
-                                      {t('lbl_reserve', 'Reservar')}
-                                    </button>
+                                    <div className="agenda-acciones">
+                                      <button
+                                        onClick={() => setAgendandoEn(cupo)}
+                                        disabled={guardandoCita}
+                                        className="agenda-btn"
+                                        title={t('tip_book_client', 'Poner aquí un cliente ya registrado')}
+                                      >
+                                        {t('lbl_book_client', 'Agendar')}
+                                      </button>
+                                      <button
+                                        onClick={() => reservarCupo(cupo)}
+                                        disabled={guardandoCita}
+                                        className="agenda-btn suave"
+                                      >
+                                        {t('lbl_reserve', 'Reservar')}
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               )
@@ -3646,6 +3721,67 @@ export default function App() {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Elegir a qué cliente registrado se le da este cupo */}
+      {agendandoEn && (
+        <div className="modal-overlay" onClick={() => setAgendandoEn(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>
+                  <Calendar className="h-5 w-5" style={{ color: '#22d3ee' }} />
+                  {t('lbl_book_client', 'Agendar')}: {agendandoEn.label}
+                </h3>
+                <p className="modal-sub">
+                  {t('desc_book_client', 'Elige un cliente registrado que todavía no tiene hora')}
+                </p>
+              </div>
+              <button className="modal-cerrar" onClick={() => setAgendandoEn(null)} aria-label="Cerrar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {(() => {
+                const sinHora = leads.filter(l => !l.appointment_iso && l.status !== 'Cancelado');
+
+                if (sinHora.length === 0) {
+                  return (
+                    <div className="chat-vacio">
+                      {t('lbl_all_booked', 'Todos los clientes registrados ya tienen hora asignada.')}
+                    </div>
+                  );
+                }
+
+                return sinHora.map(l => (
+                  <button
+                    key={l.phone}
+                    className="cliente-opcion"
+                    disabled={guardandoCita}
+                    onClick={async () => {
+                      await moverCita(l.phone, agendandoEn.id);
+                      setAgendandoEn(null);
+                    }}
+                  >
+                    <div className="cliente-opcion-titulo">
+                      {l.client_name || `+${l.phone}`}
+                    </div>
+                    <div className="cliente-opcion-detalle">
+                      {l.client_name ? `+${l.phone} · ` : ''}
+                      {l.service_type === 'installation'
+                        ? t('chat_service_installation', 'Instalación')
+                        : l.service_type === 'maintenance'
+                          ? t('chat_service_maintenance', 'Mantención')
+                          : t('chat_service_undefined', 'Servicio sin definir')}
+                      {l.address ? ` · ${l.address}` : ''}
+                    </div>
+                  </button>
+                ));
+              })()}
+            </div>
           </div>
         </div>
       )}

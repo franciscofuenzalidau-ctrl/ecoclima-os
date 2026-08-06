@@ -1040,6 +1040,7 @@ router.post('/send-preventive-offers', async (req: Request, res: Response) => {
     const whatsappToken = process.env.WHATSAPP_TOKEN;
     const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
     let sentCount = 0;
+    const fallidos: Array<{ phone: string; motivo: string }> = [];
 
     for (const lead of eligibleLeads) {
       // El mensaje cambia según si el servicio original fue Instalación o Mantención
@@ -1056,6 +1057,9 @@ router.post('/send-preventive-offers', async (req: Request, res: Response) => {
         `Queremos contarte que ${referencia}. 🗓️\n\n` +
         `Para mantener su rendimiento, evitar fallas y prolongar su vida útil, te recomendamos realizar la *mantención preventiva anual*.\n\n` +
         `¿Te gustaría agendar tu visita? Respóndenos *SÍ* a este mensaje y coordinamos día y hora según nuestra disponibilidad. 😊`;
+
+      let enviado = false;
+      let motivoFallo: string | null = null;
 
       if (whatsappToken && phoneId) {
         try {
@@ -1075,22 +1079,41 @@ router.post('/send-preventive-offers', async (req: Request, res: Response) => {
               }
             }
           );
+          enviado = true;
           console.log(`[CAMPAÑA PREVENTIVA REAL] Notificación enviada a +${lead.phone}`);
         } catch (err: any) {
-          console.error(`Error enviando campaña a +${lead.phone} por WhatsApp Real:`, err.response?.data || err.message);
+          motivoFallo = err.response?.data?.error?.message || err.message;
+          console.error(`Error enviando campaña a +${lead.phone}:`, motivoFallo);
         }
       } else {
+        motivoFallo = 'WhatsApp no está configurado en este entorno (modo simulación).';
         console.log(`\n====================================================`);
         console.log(`[SIMULACIÓN CAMPAÑA PREVENTIVA WHATSAPP API]`);
         console.log(`Para: +${lead.phone}`);
         console.log(`Mensaje:\n${campaignMessage}`);
         console.log(`====================================================\n`);
       }
-      
+
+      // Solo se cuenta y se anota si el mensaje SALIÓ de verdad. Antes el contador
+      // subía igual aunque Meta rechazara el envío, y la ficha quedaba marcada como
+      // "Oferta enviada": el dashboard informaba envíos que nunca ocurrieron.
+      if (!enviado) {
+        fallidos.push({ phone: lead.phone, motivo: motivoFallo || 'desconocido' });
+        continue;
+      }
+
+      // El mensaje de campaña se guarda EN LA CONVERSACIÓN del cliente. Sin esto, cuando
+      // el cliente responde "SÍ", el bot no sabe qué le ofrecimos y lo trata como si
+      // escribiera por primera vez: le vuelve a preguntar qué servicio busca.
+      const conversacionPrevia = Array.isArray(lead.conversation) ? lead.conversation : [];
+
       const updateData = {
         notes: (lead.notes ? lead.notes + '\n' : '') + `[Campaña Preventiva]: Oferta enviada el ${new Date().toLocaleDateString('es-CL')}.`,
         last_maintenance_info: lead.last_maintenance_info || 'Hace más de 1 año',
-        status: 'Pendiente'
+        status: 'Pendiente',
+        service_type: lead.service_type || 'maintenance',
+        conversation: [...conversacionPrevia, { role: 'model', text: campaignMessage }].slice(-60),
+        last_message_at: new Date().toISOString()
       };
 
       if (db) {
@@ -1098,10 +1121,22 @@ router.post('/send-preventive-offers', async (req: Request, res: Response) => {
       }
       updateLocalMock(lead.phone, updateData);
 
+      // El bot tiene la conversación en memoria; se borra para que la vuelva a leer
+      // desde la base y vea el mensaje de campaña que acabamos de enviar.
+      clearSession(lead.phone);
+
       sentCount++;
     }
 
-    res.status(200).json({ success: true, count: sentCount });
+    res.status(200).json({
+      success: true,
+      count: sentCount,
+      candidatos: eligibleLeads.length,
+      fallidos: fallidos.length,
+      // Meta rechaza los mensajes iniciados por la empresa pasadas 24 h desde el
+      // último mensaje del cliente, salvo que se use una plantilla aprobada.
+      errores: fallidos.slice(0, 5)
+    });
   } catch (error: any) {
     console.error('Error al ejecutar la campaña preventiva:', error);
     res.status(500).json({ error: error.message });
