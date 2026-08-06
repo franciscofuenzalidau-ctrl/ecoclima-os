@@ -12,6 +12,81 @@ import {
 
 const router = Router();
 
+/**
+ * Envía un mensaje de WhatsApp INICIADO POR LA EMPRESA.
+ *
+ * Meta bloquea el texto libre si pasaron más de 24 h desde el último mensaje del
+ * cliente. Por eso se intenta primero con la plantilla aprobada, que no tiene ese
+ * límite, y solo si falla se cae al texto libre (útil mientras Meta revisa las
+ * plantillas, o si el cliente escribió recién).
+ *
+ * Plantillas de la cuenta: recordatorio_mantencion_anual, post_servicio_pago_encuesta
+ * y aviso_visita_tecnico.
+ */
+async function enviarWhatsApp(opciones: {
+  to: string;
+  texto: string;
+  plantilla?: { nombre: string; idioma?: string; variables?: string[] };
+}): Promise<{ enviado: boolean; via: 'plantilla' | 'texto' | null; motivo?: string }> {
+  const whatsappToken = process.env.WHATSAPP_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+  if (!whatsappToken || !phoneId) {
+    console.log(`\n[SIMULACIÓN WHATSAPP] Para +${opciones.to}:\n${opciones.texto}\n`);
+    return { enviado: false, via: null, motivo: 'WhatsApp no está configurado en este entorno (modo simulación).' };
+  }
+
+  const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` };
+  let motivoPlantilla: string | undefined;
+
+  if (opciones.plantilla) {
+    try {
+      // Meta rechaza parámetros con saltos de línea o vacíos.
+      const variables = (opciones.plantilla.variables || []).map(v =>
+        String(v ?? '').replace(/[\r\n\t]+/g, ' ').trim() || 'No especificado'
+      );
+
+      await axios.post(url, {
+        messaging_product: 'whatsapp',
+        to: opciones.to,
+        type: 'template',
+        template: {
+          name: opciones.plantilla.nombre,
+          language: { code: opciones.plantilla.idioma || 'es' },
+          ...(variables.length
+            ? { components: [{ type: 'body', parameters: variables.map(text => ({ type: 'text', text })) }] }
+            : {})
+        }
+      }, { headers });
+
+      return { enviado: true, via: 'plantilla' };
+    } catch (err: any) {
+      motivoPlantilla = err.response?.data?.error?.message || err.message;
+      console.warn(`[WHATSAPP] Plantilla "${opciones.plantilla.nombre}" no utilizable todavía: ${motivoPlantilla}`);
+    }
+  }
+
+  try {
+    await axios.post(url, {
+      messaging_product: 'whatsapp',
+      to: opciones.to,
+      type: 'text',
+      text: { body: opciones.texto }
+    }, { headers });
+    return { enviado: true, via: 'texto' };
+  } catch (err: any) {
+    const motivoTexto = err.response?.data?.error?.message || err.message;
+    return {
+      enviado: false,
+      via: null,
+      motivo: motivoPlantilla
+        ? `Plantilla: ${motivoPlantilla} — Texto libre: ${motivoTexto}`
+        : motivoTexto
+    };
+  }
+}
+
 // Helper function to update local mock JSON file
 function updateLocalMock(phone: string, updateData: any): boolean {
   try {
@@ -863,30 +938,25 @@ async function notifyTechnician(technicianName: string, leadPhone: string, leadD
       (sinUbicacion ? `⚠️ Esta visita NO tiene dirección registrada. Contacta al cliente antes de salir.\n\n` : '') +
       `Por favor, ingresa al Módulo de Terreno para ejecutar la lista de chequeo y certificar la calidad del servicio.`;
 
-    if (whatsappToken && phoneId) {
-      const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
-      await axios.post(
-        url,
-        {
-          messaging_product: 'whatsapp',
-          to: techPhone,
-          type: 'text',
-          text: { body: messageText }
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${whatsappToken}`
-          }
-        }
-      );
-      console.log(`[WHATSAPP REAL] Notificación enviada con éxito al técnico ${technicianName} (+${techPhone})`);
+    const r = await enviarWhatsApp({
+      to: techPhone,
+      texto: messageText,
+      plantilla: {
+        nombre: 'aviso_visita_tecnico',
+        variables: [
+          technicianName,
+          `+${fullLead.phone}`,
+          fullLead.service_type === 'installation' ? 'Instalación' : 'Mantención',
+          fullLead.address || 'Sin dirección registrada',
+          fullLead.appointment_time || 'Por definir'
+        ]
+      }
+    });
+
+    if (r.enviado) {
+      console.log(`[WHATSAPP] Aviso enviado al técnico ${technicianName} (+${techPhone}) vía ${r.via}`);
     } else {
-      console.log(`\n====================================================`);
-      console.log(`[SIMULACIÓN NOTIFICACIÓN TÉCNICO WHATSAPP API]`);
-      console.log(`Para: ${technicianName} (+${techPhone})`);
-      console.log(`Mensaje:\n${messageText}`);
-      console.log(`====================================================\n`);
+      console.error(`[WHATSAPP] No se pudo avisar al técnico ${technicianName}: ${r.motivo}`);
     }
   } catch (error: any) {
     console.error(`Error al enviar notificación de WhatsApp al técnico:`, error.response?.data || error.message);
@@ -895,37 +965,26 @@ async function notifyTechnician(technicianName: string, leadPhone: string, leadD
 
 // Send post-service satisfaction survey to the client via WhatsApp
 async function sendSatisfactionSurvey(clientPhone: string) {
-  try {
-    const whatsappToken = process.env.WHATSAPP_TOKEN;
-    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  // Primero la forma de pago (por eso el bot ya no la pregunta al inicio),
+  // y después la encuesta. El bot continúa el hilo (ver MODO POST-SERVICIO en gemini.ts).
+  const messageText = `¡Hola! Te saluda el asistente virtual de Furtz Clima 😊\n\n` +
+    `Tu servicio ya fue completado. Para cerrar tu ficha, cuéntame:\n\n` +
+    `💳 ¿Qué forma de pago prefieres: *transferencia*, *efectivo* o *débito/crédito*?\n\n` +
+    `Después te hago 4 preguntas cortitas para saber cómo lo hicimos 👇`;
 
-    // Primero la forma de pago (por eso el bot ya no la pregunta al inicio),
-    // y después la encuesta. El bot continúa el hilo (ver MODO POST-SERVICIO en gemini.ts).
-    const messageText = `¡Hola! Te saluda el asistente virtual de Furtz Clima 😊\n\n` +
-      `Tu servicio ya fue completado. Para cerrar tu ficha, cuéntame:\n\n` +
-      `💳 ¿Qué forma de pago prefieres: *transferencia*, *efectivo* o *débito/crédito*?\n\n` +
-      `Después te hago 4 preguntas cortitas para saber cómo lo hicimos 👇`;
+  const r = await enviarWhatsApp({
+    to: clientPhone,
+    texto: messageText,
+    plantilla: { nombre: 'post_servicio_pago_encuesta' }
+  });
 
-    if (whatsappToken && phoneId) {
-      const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
-      await axios.post(
-        url,
-        { messaging_product: 'whatsapp', to: clientPhone, type: 'text', text: { body: messageText } },
-        { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` } }
-      );
-      console.log(`[WHATSAPP REAL] Mensaje post-servicio enviado al cliente +${clientPhone}`);
-      return { sent: true as const };
-    } else {
-      console.log(`[SIMULACIÓN ENCUESTA] Mensaje post-servicio para +${clientPhone}:\n${messageText}`);
-      return { sent: false as const, reason: 'WhatsApp no está configurado en este entorno (modo simulación).' };
-    }
-  } catch (error: any) {
-    // Meta rechaza los mensajes que inicia la empresa pasadas 24 h desde el último
-    // mensaje del cliente, salvo que se use una plantilla aprobada por ellos.
-    const detail = error.response?.data?.error?.message || error.message;
-    console.error('Error al enviar el mensaje post-servicio:', error.response?.data || error.message);
-    return { sent: false as const, reason: detail };
+  if (r.enviado) {
+    console.log(`[WHATSAPP] Mensaje post-servicio enviado a +${clientPhone} vía ${r.via}`);
+  } else {
+    console.error(`[WHATSAPP] No se pudo enviar el post-servicio a +${clientPhone}: ${r.motivo}`);
   }
+
+  return { sent: r.enviado, reason: r.motivo, via: r.via };
 }
 
 // POST /api/leads/:phone/send-survey - Disparar a mano el mensaje post-servicio
@@ -1058,40 +1117,19 @@ router.post('/send-preventive-offers', async (req: Request, res: Response) => {
         `Para mantener su rendimiento, evitar fallas y prolongar su vida útil, te recomendamos realizar la *mantención preventiva anual*.\n\n` +
         `¿Te gustaría agendar tu visita? Respóndenos *SÍ* a este mensaje y coordinamos día y hora según nuestra disponibilidad. 😊`;
 
-      let enviado = false;
-      let motivoFallo: string | null = null;
+      const r = await enviarWhatsApp({
+        to: lead.phone,
+        texto: campaignMessage,
+        plantilla: { nombre: 'recordatorio_mantencion_anual', variables: [equipos] }
+      });
 
-      if (whatsappToken && phoneId) {
-        try {
-          const url = `https://graph.facebook.com/v18.0/${phoneId}/messages`;
-          await axios.post(
-            url,
-            {
-              messaging_product: 'whatsapp',
-              to: lead.phone,
-              type: 'text',
-              text: { body: campaignMessage }
-            },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${whatsappToken}`
-              }
-            }
-          );
-          enviado = true;
-          console.log(`[CAMPAÑA PREVENTIVA REAL] Notificación enviada a +${lead.phone}`);
-        } catch (err: any) {
-          motivoFallo = err.response?.data?.error?.message || err.message;
-          console.error(`Error enviando campaña a +${lead.phone}:`, motivoFallo);
-        }
+      const enviado = r.enviado;
+      const motivoFallo = r.motivo || null;
+
+      if (enviado) {
+        console.log(`[CAMPAÑA PREVENTIVA] Enviada a +${lead.phone} vía ${r.via}`);
       } else {
-        motivoFallo = 'WhatsApp no está configurado en este entorno (modo simulación).';
-        console.log(`\n====================================================`);
-        console.log(`[SIMULACIÓN CAMPAÑA PREVENTIVA WHATSAPP API]`);
-        console.log(`Para: +${lead.phone}`);
-        console.log(`Mensaje:\n${campaignMessage}`);
-        console.log(`====================================================\n`);
+        console.error(`[CAMPAÑA PREVENTIVA] Falló para +${lead.phone}: ${motivoFallo}`);
       }
 
       // Solo se cuenta y se anota si el mensaje SALIÓ de verdad. Antes el contador
