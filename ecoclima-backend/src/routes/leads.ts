@@ -5,87 +5,13 @@ import nodemailer from 'nodemailer';
 import axios from 'axios';
 import { db } from '../services/firebase';
 import { clearSession } from '../services/gemini';
+import { enviarWhatsApp, avisarTecnicoDeVisita } from '../services/notificaciones';
 import {
   cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
   leerConfigAgenda, guardarConfigAgenda
 } from '../services/agenda';
 
 const router = Router();
-
-/**
- * Envía un mensaje de WhatsApp INICIADO POR LA EMPRESA.
- *
- * Meta bloquea el texto libre si pasaron más de 24 h desde el último mensaje del
- * cliente. Por eso se intenta primero con la plantilla aprobada, que no tiene ese
- * límite, y solo si falla se cae al texto libre (útil mientras Meta revisa las
- * plantillas, o si el cliente escribió recién).
- *
- * Plantillas de la cuenta: recordatorio_mantencion_anual, post_servicio_pago_encuesta
- * y aviso_visita_tecnico.
- */
-async function enviarWhatsApp(opciones: {
-  to: string;
-  texto: string;
-  plantilla?: { nombre: string; idioma?: string; variables?: string[] };
-}): Promise<{ enviado: boolean; via: 'plantilla' | 'texto' | null; motivo?: string }> {
-  const whatsappToken = process.env.WHATSAPP_TOKEN;
-  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-
-  if (!whatsappToken || !phoneId) {
-    console.log(`\n[SIMULACIÓN WHATSAPP] Para +${opciones.to}:\n${opciones.texto}\n`);
-    return { enviado: false, via: null, motivo: 'WhatsApp no está configurado en este entorno (modo simulación).' };
-  }
-
-  const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
-  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` };
-  let motivoPlantilla: string | undefined;
-
-  if (opciones.plantilla) {
-    try {
-      // Meta rechaza parámetros con saltos de línea o vacíos.
-      const variables = (opciones.plantilla.variables || []).map(v =>
-        String(v ?? '').replace(/[\r\n\t]+/g, ' ').trim() || 'No especificado'
-      );
-
-      await axios.post(url, {
-        messaging_product: 'whatsapp',
-        to: opciones.to,
-        type: 'template',
-        template: {
-          name: opciones.plantilla.nombre,
-          language: { code: opciones.plantilla.idioma || 'es' },
-          ...(variables.length
-            ? { components: [{ type: 'body', parameters: variables.map(text => ({ type: 'text', text })) }] }
-            : {})
-        }
-      }, { headers });
-
-      return { enviado: true, via: 'plantilla' };
-    } catch (err: any) {
-      motivoPlantilla = err.response?.data?.error?.message || err.message;
-      console.warn(`[WHATSAPP] Plantilla "${opciones.plantilla.nombre}" no utilizable todavía: ${motivoPlantilla}`);
-    }
-  }
-
-  try {
-    await axios.post(url, {
-      messaging_product: 'whatsapp',
-      to: opciones.to,
-      type: 'text',
-      text: { body: opciones.texto }
-    }, { headers });
-    return { enviado: true, via: 'texto' };
-  } catch (err: any) {
-    const motivoTexto = err.response?.data?.error?.message || err.message;
-    return {
-      enviado: false,
-      via: null,
-      motivo: motivoPlantilla
-        ? `Plantilla: ${motivoPlantilla} — Texto libre: ${motivoTexto}`
-        : motivoTexto
-    };
-  }
-}
 
 // Helper function to update local mock JSON file
 function updateLocalMock(phone: string, updateData: any): boolean {
@@ -882,18 +808,6 @@ function optimizeRouteHelper(leads: any[]): any[] {
 // Helper to notify technician of assignment
 async function notifyTechnician(technicianName: string, leadPhone: string, leadDataUpdate: any) {
   try {
-    // Solo técnicos con número REAL verificado. Sin números de relleno.
-    const techPhones: { [key: string]: string } = {
-      'francisco': '56990939188'
-    };
-
-    const cleanName = technicianName.toLowerCase().trim();
-    const techPhone = techPhones[cleanName];
-    if (!techPhone) {
-      console.log(`[NOTIFICACIÓN TÉCNICO] No hay número registrado para el técnico: "${technicianName}"`);
-      return;
-    }
-
     // La ficha se lee de FIRESTORE. Antes se leía de data_mock/clientes_leads.json,
     // que en Cloud Run vive en un disco efímero y se borra en cada reinicio: por eso
     // al técnico le llegaba "Dirección: No especificada" aunque el dato sí existiera.
@@ -919,45 +833,7 @@ async function notifyTechnician(technicianName: string, leadPhone: string, leadD
       }
     }
 
-    const whatsappToken = process.env.WHATSAPP_TOKEN;
-    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-
-    const enlaceMapa = fullLead.latitude && fullLead.longitude
-      ? `https://www.google.com/maps/search/?api=1&query=${fullLead.latitude},${fullLead.longitude}`
-      : null;
-    const sinUbicacion = !fullLead.address && !enlaceMapa;
-
-    const messageText = `Hola ${technicianName}, se te ha asignado una nueva visita técnica en Furtz Clima OS:\n\n` +
-      `📞 Cliente: +${fullLead.phone}\n` +
-      `🔧 Servicio: ${fullLead.service_type === 'installation' ? 'Instalación' : 'Mantenimiento'}\n` +
-      `📍 Dirección: ${fullLead.address || 'no registrada'}\n` +
-      (enlaceMapa ? `🗺️ Ubicación GPS: ${enlaceMapa}\n` : '') +
-      `📅 Fecha Cita: ${fullLead.appointment_time || 'Por definir'}\n` +
-      `📐 Capacidad/Detalle: ${fullLead.calculated_btu || fullLead.installation_age || 'N/A'}\n` +
-      `📝 Notas: ${fullLead.notes || 'Sin notas adicionales'}\n\n` +
-      (sinUbicacion ? `⚠️ Esta visita NO tiene dirección registrada. Contacta al cliente antes de salir.\n\n` : '') +
-      `Por favor, ingresa al Módulo de Terreno para ejecutar la lista de chequeo y certificar la calidad del servicio.`;
-
-    const r = await enviarWhatsApp({
-      to: techPhone,
-      texto: messageText,
-      plantilla: {
-        nombre: 'aviso_visita_tecnico',
-        variables: [
-          technicianName,
-          `+${fullLead.phone}`,
-          fullLead.service_type === 'installation' ? 'Instalación' : 'Mantención',
-          fullLead.address || 'Sin dirección registrada',
-          fullLead.appointment_time || 'Por definir'
-        ]
-      }
-    });
-
-    if (r.enviado) {
-      console.log(`[WHATSAPP] Aviso enviado al técnico ${technicianName} (+${techPhone}) vía ${r.via}`);
-    } else {
-      console.error(`[WHATSAPP] No se pudo avisar al técnico ${technicianName}: ${r.motivo}`);
-    }
+    await avisarTecnicoDeVisita(fullLead, technicianName);
   } catch (error: any) {
     console.error(`Error al enviar notificación de WhatsApp al técnico:`, error.response?.data || error.message);
   }

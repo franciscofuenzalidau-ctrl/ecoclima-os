@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { aiLogger } from './aiLogger';
 import { db } from './firebase';
 import { ahoraEnChile, cuposLibres, detectarCupoElegido, etiquetaDeFecha, leerConfigAgenda } from './agenda';
+import { avisarTecnicoDeVisita, TECNICO_POR_DEFECTO } from './notificaciones';
 
 dotenv.config();
 
@@ -74,6 +75,8 @@ interface UserSession {
     contact_phone?: string;
     equipment_count?: number;
     payment_method?: string;
+    /** Técnico asignado. El bot lo fija al agendar para poder avisarle. */
+    technician?: string;
   };
 }
 
@@ -87,7 +90,7 @@ const HYDRATED_FIELDS = [
   'service_type', 'installation_age', 'address', 'appointment_time', 'appointment_iso', 'latitude', 'longitude',
   'area_m2', 'calculated_btu', 'notes', 'status', 'last_maintenance_info', 'is_working_correctly',
   'installation_date', 'last_maintenance_date', 'satisfaction_rating', 'satisfaction_comment',
-  'client_type', 'contact_phone', 'equipment_count', 'payment_method'
+  'client_type', 'contact_phone', 'equipment_count', 'payment_method', 'technician'
 ] as const;
 
 // Helper to get or create session
@@ -353,16 +356,9 @@ export class GeminiService {
       session.leadData.longitude = location.longitude;
       const address = await this.reverseGeocode(location.latitude, location.longitude);
       session.leadData.address = address;
-      
-      const responseText = `He recibido tu ubicación GPS: ${address}. La usaré para registrar tu dirección de atención.`;
-      session.history.push({ role: 'user', parts: [{ text: `[Ubicación GPS enviada: ${location.latitude}, ${location.longitude}. Dirección: ${address}]` }] });
-      session.history.push({ role: 'model', parts: [{ text: responseText }] });
-      
+
       aiLogger.logEvent(cleanPhone, 'location_received', `Recibió ubicación GPS y resolvió dirección: "${address}"`, 10, 500);
-      
-      // FIX: Ensure we save the location to the database before returning
-      await this.saveLeadToFirestore(cleanPhone, session.leadData, session.history);
-      
+
       // If a technician is already assigned to this client, forward the location
       if (existingLead && existingLead.technician) {
         notifyTechnicianOfLocation(cleanPhone, existingLead.technician, location.latitude, location.longitude, address).catch(err => {
@@ -370,7 +366,13 @@ export class GeminiService {
         });
       }
 
-      return responseText;
+      // La ubicación entra a la conversación como un mensaje más del cliente y el flujo
+      // SIGUE hasta Gemini, que continúa con el paso siguiente (ofrecer horarios).
+      //
+      // Antes esto respondía con un texto fijo y hacía `return`: el bot acusaba recibo
+      // de la ubicación y se quedaba mudo. El cliente esperaba los horarios que nunca
+      // llegaban, y la conversación moría justo antes de agendar.
+      message = `[Te compartí mi ubicación por GPS. La dirección para la visita es: ${address}]`;
     }
 
     // Load config dynamically for each execution to pick up dollar adjustments
@@ -498,6 +500,9 @@ ${surveyMode ? `
    - Si el cliente no quiere responder, agradécele igual y despídete sin insistir.` : ''}
 `;
 
+    // Se marca si el cliente acaba de tomar hora, para avisarle al técnico al final.
+    let citaReciénAgendada = false;
+
     const startTime = Date.now();
     try {
       // Structure the input content
@@ -549,10 +554,11 @@ ${surveyMode ? `
         // ¿El cliente eligió uno de los cupos que le ofrecimos? Se compara contra la
         // lista real de disponibles, así nunca queda agendada una fecha que no existe.
         const elegido = detectarCupoElegido(message, disponibles);
-        if (elegido) {
+        if (elegido && session.leadData.appointment_iso !== elegido.id) {
           session.leadData.appointment_iso = elegido.id;
           session.leadData.appointment_time = elegido.label;
           console.log(`[AGENDA] +${cleanPhone} tomó el cupo ${elegido.id} (${elegido.label}).`);
+          citaReciénAgendada = true;
         }
       }
 
@@ -596,8 +602,24 @@ ${surveyMode ? `
         }
       }
 
+      // Al agendar se asigna técnico ANTES de guardar, para que quede en la misma
+      // escritura y el dashboard lo muestre de inmediato.
+      let tecnicoParaAvisar: string | undefined;
+      if (citaReciénAgendada) {
+        tecnicoParaAvisar = session.leadData.technician || existingLead?.technician || TECNICO_POR_DEFECTO;
+        session.leadData.technician = tecnicoParaAvisar;
+      }
+
       // Save lead updates to database on every turn to support real-time dashboard feed
       await this.saveLeadToFirestore(cleanPhone, session.leadData, session.history);
+
+      // Recién agendada la visita, se le avisa al técnico con la dirección, el enlace al
+      // mapa y el día y hora que eligió el cliente. Antes esto solo ocurría si Pilar le
+      // asignaba técnico a mano, así que una cita tomada de noche no le llegaba a nadie.
+      if (tecnicoParaAvisar) {
+        avisarTecnicoDeVisita({ ...session.leadData, phone: cleanPhone }, tecnicoParaAvisar)
+          .catch(err => console.error('Error avisando al técnico de la cita agendada:', err));
+      }
 
       const latencyMs = Date.now() - startTime;
       const tokensUsed = response.usageMetadata?.totalTokenCount || Math.round((message.length + replyText.length) * 0.7);
@@ -866,6 +888,7 @@ ${conversacion}`;
           payment_method: leadData.payment_method || null,
           satisfaction_rating: leadData.satisfaction_rating || null,
           satisfaction_comment: leadData.satisfaction_comment || null,
+          ...(leadData.technician ? { technician: leadData.technician } : {}),
           // Solo se escribe si hay historial, para no borrar el que ya estaba guardado.
           ...(conversation ? { conversation, last_message_at: lastMessageAt } : {}),
           created_at: createdAt
