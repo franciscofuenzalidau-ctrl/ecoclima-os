@@ -385,8 +385,19 @@ export class GeminiService {
     const [ocupados, configAgenda] = await Promise.all([getOccupiedSlotIds(), leerConfigAgenda()]);
     const disponibles = cuposLibres(ocupados, 21, new Date(), configAgenda);
     const hoyChile = etiquetaDeFecha(ahoraEnChile().date);
+    // Se le pasa la agenda COMPLETA agrupada por día, no solo los primeros cupos.
+    // Antes solo iban 8: si el cliente pedía un día más adelante, el bot creía que no
+    // había disponibilidad y se la negaba existiendo.
+    const porDia = new Map<string, string[]>();
+    for (const c of disponibles) {
+      if (!porDia.has(c.date)) porDia.set(c.date, []);
+      porDia.get(c.date)!.push(c.time);
+    }
+
     const calendarContext = disponibles.length > 0
-      ? disponibles.slice(0, 8).map(c => `- ${c.label}`).join('\n')
+      ? [...porDia.entries()]
+          .map(([fecha, horas]) => `- ${etiquetaDeFecha(fecha)}: ${horas.join(', ')}`)
+          .join('\n')
       : 'NO HAY CUPOS LIBRES. Deriva al cliente a la ejecutiva.';
 
     // Lo que ya sabemos de este cliente (de conversaciones anteriores o de su ficha).
@@ -476,14 +487,17 @@ Si prefieres escribirle tú directamente, acá está su WhatsApp: https://wa.me/
    Furtz Clima atiende SOLO de lunes a viernes, y SOLO en dos horarios al día: 09:15 y 14:00.
    No existe ningún otro horario. No se trabaja sábado ni domingo.
 
-   ESTOS SON LOS ÚNICOS CUPOS LIBRES. No existe ninguno más:
+   AGENDA COMPLETA DE CUPOS LIBRES (día: horas disponibles). No existe ninguno más:
 ${calendarContext}
 
    - TIENES PROHIBIDO inventar fechas u horarios. Solo puedes ofrecer cupos de la lista de arriba,
      copiando el día y la hora EXACTAMENTE como aparecen ahí.
-   - Ofrece 2 o 3, siempre los más cercanos de la lista.
-   - Si el cliente pide un día u hora que no está en la lista, explícale amablemente que no hay
-     disponibilidad en ese horario y ofrécele los que sí están.
+   - Primero ofrécele los 3 cupos más cercanos, y agrega que si ninguno le acomoda tiene más días
+     disponibles y que te diga cuál prefiere.
+   - Si el cliente pide un día concreto, BUSCA ESE DÍA en la lista completa de arriba y ofrécele
+     las horas libres que tenga. La lista abarca las próximas tres semanas, no solo los primeros días.
+   - Solo si el día que pide NO aparece en la lista dile que no hay disponibilidad, y ofrécele el
+     día libre más cercano a lo que pidió.
    - Si no logran coordinar una fecha, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE
      la frase de la regla de SOLICITUD HUMANA.
 ${surveyMode ? `
