@@ -99,7 +99,8 @@ export async function enviarWhatsApp(opciones: {
  */
 export async function avisarTecnicoDeVisita(
   lead: any,
-  nombreTecnico: string = TECNICO_POR_DEFECTO
+  nombreTecnico: string = TECNICO_POR_DEFECTO,
+  esActualizacion: boolean = false
 ): Promise<ResultadoEnvio> {
   const telefono = telefonoDelTecnico(nombreTecnico);
   if (!telefono) {
@@ -118,7 +119,9 @@ export async function avisarTecnicoDeVisita(
   const sinUbicacion = !lead.address && !enlaceMapa;
 
   const texto =
-    `Hola ${nombreTecnico}, se te ha asignado una nueva visita técnica en Furtz Clima OS:\n\n` +
+    (esActualizacion
+      ? `Hola ${nombreTecnico}, se actualizó la información de una visita que ya tenías asignada. Ahora sí está la dirección:\n\n`
+      : `Hola ${nombreTecnico}, se te ha asignado una nueva visita técnica en Furtz Clima OS:\n\n`) +
     `📞 Cliente: +${lead.phone}\n` +
     `🔧 Servicio: ${servicio}\n` +
     `📍 Dirección: ${direccion}\n` +

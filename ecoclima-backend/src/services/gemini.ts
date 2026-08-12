@@ -619,9 +619,22 @@ ${surveyMode ? `
       // Al agendar se asigna técnico ANTES de guardar, para que quede en la misma
       // escritura y el dashboard lo muestre de inmediato.
       let tecnicoParaAvisar: string | undefined;
+      let avisoEsActualizacion = false;
+
       if (citaReciénAgendada) {
         tecnicoParaAvisar = session.leadData.technician || existingLead?.technician || TECNICO_POR_DEFECTO;
         session.leadData.technician = tecnicoParaAvisar;
+      } else if (
+        session.leadData.appointment_iso &&
+        session.leadData.address &&
+        session.leadData.address !== existingLead?.address
+      ) {
+        // La dirección llegó DESPUÉS de tomar el cupo. El técnico ya recibió el aviso
+        // con "Dirección: no registrada" y nadie se la iba a mandar nunca: se le
+        // reenvía la ficha ahora que sí está completa.
+        tecnicoParaAvisar = session.leadData.technician || existingLead?.technician || TECNICO_POR_DEFECTO;
+        session.leadData.technician = tecnicoParaAvisar;
+        avisoEsActualizacion = true;
       }
 
       // Save lead updates to database on every turn to support real-time dashboard feed
@@ -631,7 +644,7 @@ ${surveyMode ? `
       // mapa y el día y hora que eligió el cliente. Antes esto solo ocurría si Pilar le
       // asignaba técnico a mano, así que una cita tomada de noche no le llegaba a nadie.
       if (tecnicoParaAvisar) {
-        avisarTecnicoDeVisita({ ...session.leadData, phone: cleanPhone }, tecnicoParaAvisar)
+        avisarTecnicoDeVisita({ ...session.leadData, phone: cleanPhone }, tecnicoParaAvisar, avisoEsActualizacion)
           .catch(err => console.error('Error avisando al técnico de la cita agendada:', err));
       }
 

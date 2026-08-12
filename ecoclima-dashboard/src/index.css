@@ -1205,6 +1205,45 @@ input[type=number] {
 .tech-select-field option { background-color: #0b1220; color: #ffffff; }
 
 
+/* Desplegables del panel.
+   Este proyecto NO usa Tailwind: las clases tipo `bg-white/5 text-slate-300` que
+   traen algunos <select> en el JSX no existen y no pintan nada, así que quedaban
+   con el estilo por defecto del navegador — texto oscuro sobre el fondo oscuro del
+   panel, prácticamente ilegible. Esta regla es por elemento, así que cualquier
+   clase propia (como .tech-select-field) la sigue ganando. */
+select {
+  background-color: rgba(2, 6, 23, 0.75);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px 34px 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f5f9;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+
+  /* Flecha propia: la del navegador se pierde sobre fondo oscuro. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 15px;
+}
+
+select:hover { border-color: rgba(34, 211, 238, 0.4); }
+select:focus { border-color: rgba(34, 211, 238, 0.6); }
+
+/* Las opciones abiertas las dibuja el sistema operativo: sin esto quedan blancas
+   con texto blanco en Windows con tema oscuro. */
+select option {
+  background-color: #0b1220;
+  color: #f1f5f9;
+  padding: 8px;
+}
+
+
 /* Mapa de clientes (OpenStreetMap, sin clave de API). */
 .mapa-clientes {
   flex: 1;
