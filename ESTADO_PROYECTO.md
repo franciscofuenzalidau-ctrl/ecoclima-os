@@ -94,6 +94,25 @@ clientes. Los 8 clientes cargados por Pilar llevaban semanas sin recibir nada. A
 - **Interruptor**: variable `CAMPANA_AUTOMATICA` en Cloud Run. En `true` corre sola; sin ella, no.
   `/health` informa su estado en el campo `campanaAutomatica`.
 
+## 3-quinquies. Técnico y dashboard (11-08-2026, tarde)
+
+- **Aviso al técnico cuando la dirección llega tarde**: la asignación automática al agendar ya
+  existía, pero si el cliente tomaba el cupo ANTES de dar su dirección, el técnico recibía
+  "Dirección: no registrada" y nadie se la mandaba nunca. Ahora, si la dirección aparece después
+  de que la cita ya está tomada, se le reenvía la ficha completa con el encabezado "se actualizó
+  la información de una visita que ya tenías asignada". `avisarTecnicoDeVisita()` acepta un tercer
+  parámetro `esActualizacion`.
+- **"Instalado" → "Servicio completo"**: cambiada solo la ETIQUETA visible (claves `status_installed`
+  y `lbl_completed_services` en ambos idiomas). El valor interno sigue siendo `'Instalado'` porque lo
+  usan como disparador la encuesta de satisfacción, el registro de fecha para la campaña anual, el
+  export al contador y el filtro de rutas. Cambiar el valor habría roto todo eso y los datos ya
+  guardados en Firestore.
+- **Desplegables legibles**: varios `<select>` traían clases de Tailwind (`bg-white/5`,
+  `text-slate-300`) que en este proyecto NO existen, así que quedaban con el estilo por defecto del
+  navegador: texto oscuro sobre el fondo oscuro del panel. Se agregó en `index.css` una regla por
+  elemento para `select` y `select option` (fondo oscuro, texto claro, flecha propia en SVG). Al ser
+  por elemento y no por clase, cualquier clase propia como `.tech-select-field` la sigue ganando.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
