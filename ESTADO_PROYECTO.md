@@ -113,6 +113,39 @@ clientes. Los 8 clientes cargados por Pilar llevaban semanas sin recibir nada. A
   elemento para `select` y `select option` (fondo oscuro, texto claro, flecha propia en SVG). Al ser
   por elemento y no por clase, cualquier clase propia como `.tech-select-field` la sigue ganando.
 
+## 3-quinquies. Agenda, autoría y seguimiento (12-08-2026)
+
+- **El bot reconoce las citas que ya existen.** Si el cliente tiene hora —la haya tomado él
+  o se la haya puesto Pilar a mano— el prompt recibe un bloque `⚠️ ESTE CLIENTE YA TIENE VISITA
+  AGENDADA`. Antes el bot no se enteraba y volvía a ofrecerle cupos a alguien ya agendado.
+  Si pide cambiarla, no la cambia: deriva a la ejecutiva.
+- **Autoría de cada cita**: campos `booked_by` (`'bot'` | `'panel'`) y `booked_at`. El bot marca
+  `'bot'` al detectar el cupo elegido; la ruta `PUT /:phone/appointment` marca `'panel'`. Al liberar
+  un cupo ambos se borran. En el panel aparece como etiqueta 🤖 / 👤 bajo la fecha de la cita.
+  **Es la evidencia para el XPRIZE de cuántas visitas cierra la IA sin intervención humana.**
+- **Estado `Agendado`**: se pone solo al tomar hora (por cualquier vía). Manda por sobre
+  `pendiente_revision`, para que completar el cuestionario después de agendar no devuelva la ficha
+  a la cola. Agregado a los 3 desplegables, a las traducciones es/en y al tipo de `Lead`.
+- **Etiquetas de estado**: se reemplazó la cadena de ternarios por el mapa `CLAVE_ESTADO`. La cadena
+  vieja terminaba en `'cancelled'`, así que cualquier estado no contemplado —incluido `Agendado`—
+  se mostraba como "Cancelado".
+- **Seguimiento a las 24 h**: `ejecutarSeguimiento24h()` en `campanaPreventiva.ts`. A quien no
+  contestó la oferta en 24 h se le insiste UNA vez con los horarios libres concretos (3 días).
+  Excluye a quien ya respondió, ya tiene cita, está cancelado o derivado. Corre en la misma pasada
+  diaria que la campaña. Endpoint `POST /api/leads/send-followups` (acepta `{"preview": true}`).
+  Los cupos se leen una sola vez por corrida para no ofrecer el mismo horario a dos personas.
+- **`enviarWhatsApp` acepta `preferirTexto`**: intenta el texto libre primero y cae a la plantilla.
+  El seguimiento lo usa porque los horarios no caben en la plantilla aprobada.
+  ⚠️ Si el cliente nunca escribió, la ventana de 24 h de Meta está cerrada y solo entra la plantilla,
+  que NO lleva los días dentro. Para que el segundo aviso incluya horarios hace falta **crear una
+  plantilla nueva en Meta con una variable para los cupos**.
+- **Renombrado visible**: el estado `Instalado` ahora se muestra como **"Servicio completo"**
+  (y "Service completed" en inglés). El valor interno sigue siendo `Instalado`: cambiarlo habría
+  roto la encuesta, el recordatorio anual, el filtro de rutas y la exportación al contador.
+- **Desplegables legibles**: regla global para `select` y `select option` en `index.css`. Los
+  `<select>` traían clases de Tailwind (`bg-white/5`, `text-slate-300`) que en este proyecto no
+  existen, así que quedaban con el estilo por defecto: texto oscuro sobre fondo oscuro.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
