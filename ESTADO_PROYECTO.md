@@ -72,6 +72,28 @@ Todo en `src/services/gemini.ts` (systemInstruction + extractLeadInfo) y `src/ro
   - **Acción tomada**: los 2 activadores de Cloud Build quedaron **Inhabilitados** (ya no se redespliegan). Los servicios NO se borraron por decisión del usuario; siguen existiendo pero sin recibir tráfico de WhatsApp (el webhook apunta a Santiago).
   - Pendiente opcional: borrar esos 2 servicios cuando se confirme que no hacen falta.
 
+## 3-quater. Campaña preventiva automática (11-08-2026)
+
+Antes la campaña era **un botón manual** del dashboard: si nadie lo apretaba, nadie contactaba a los
+clientes. Los 8 clientes cargados por Pilar llevaban semanas sin recibir nada. Ahora:
+
+- **Lógica movida a `src/services/campanaPreventiva.ts`** (antes vivía dentro de la ruta).
+- **Vista previa**: `POST /api/leads/send-preventive-offers` con `{"preview": true}` devuelve a quién
+  le llegaría **sin enviar nada**. Úsalo siempre antes de disparar.
+- **Anti-duplicado**: cada ficha guarda `campaign_sent_at`; no se reenvía antes de 60 días. Antes,
+  apretar el botón dos veces mandaba el mensaje dos veces al mismo cliente.
+- **Exclusiones**: quien ya tiene cita agendada, los cancelados, los derivados a ventas y los
+  teléfonos de los propios técnicos (el número de Francisco calificaba y se auto-enviaba la oferta).
+- **Criterio corregido**: manda la atención MÁS RECIENTE entre instalación y mantención. Antes un
+  cliente con instalación de hace 3 años pero mantención del año pasado calificaba igual.
+- **Disparo automático diario**: `tal_vez_correr_campana_diaria()` se llama desde `/health`. Cloud Run
+  apaga el contenedor sin tráfico, así que un temporizador en memoria no sirve; el uptime check que
+  golpea `/health` cada minuto hace de reloj. Corre una vez al día, solo entre 09:00 y 19:00 de Chile,
+  con tope de 25 mensajes por corrida. La marca del día se escribe en Firestore ANTES de enviar, para
+  que un fallo a mitad de camino no dispare envíos duplicados.
+- **Interruptor**: variable `CAMPANA_AUTOMATICA` en Cloud Run. En `true` corre sola; sin ella, no.
+  `/health` informa su estado en el campo `campanaAutomatica`.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
