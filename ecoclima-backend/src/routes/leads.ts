@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import nodemailer from 'nodemailer';
@@ -10,6 +10,7 @@ import {
   cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
   leerConfigAgenda, guardarConfigAgenda
 } from '../services/agenda';
+import { ejecutarCampanaPreventiva } from '../services/campanaPreventiva';
 
 const router = Router();
 
@@ -914,142 +915,20 @@ router.post('/:phone/send-survey', async (req: Request, res: Response) => {
   });
 });
 
-// POST /api/leads/send-preventive-offers - Trigger preventive maintenance campaign
+// POST /api/leads/send-preventive-offers - Campaña de mantención preventiva anual.
+// Con { "preview": true } no envía nada: solo informa a quién le llegaría.
 router.post('/send-preventive-offers', async (req: Request, res: Response) => {
   try {
-    let allLeads: any[] = [];
-    let fetchedFromDb = false;
-    
-    if (db) {
-      try {
-        const snapshot = await db.collection('leads').get();
-        snapshot.forEach(doc => {
-          allLeads.push({ phone: doc.id, ...doc.data() });
-        });
-        fetchedFromDb = true;
-      } catch (dbErr: any) {
-        console.warn('Advertencia: Fallback a mock local para campaña debido a error en Firestore:', dbErr.message);
-      }
-    }
-
-    if (!fetchedFromDb) {
-      const mockLeadsPath = path.resolve(process.cwd(), 'data_mock', 'clientes_leads.json');
-      if (fs.existsSync(mockLeadsPath)) {
-        allLeads = JSON.parse(fs.readFileSync(mockLeadsPath, 'utf8'));
-      }
-    }
-
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-
-    const eligibleLeads = allLeads.filter(lead => {
-      // 1. Check dates
-      if (lead.installation_date) {
-        const instDate = new Date(lead.installation_date);
-        if (instDate < oneYearAgo) return true;
-      }
-      if (lead.last_maintenance_date) {
-        const maintDate = new Date(lead.last_maintenance_date);
-        if (maintDate < oneYearAgo) return true;
-      }
-
-      // 2. Check string fields as fallback
-      if (lead.installation_age) {
-        const age = String(lead.installation_age).toLowerCase();
-        if (age.includes('1 año') || age.includes('2 año') || age.includes('3 año') || age.includes('año') || age.includes('ano') || age.includes('years') || age.includes('year')) {
-          if (!age.includes('mes') || age.includes('12 mes') || age.includes('18 mes') || age.includes('24 mes')) {
-            return true;
-          }
-        }
-      }
-      if (lead.last_maintenance_info) {
-        const info = String(lead.last_maintenance_info).toLowerCase();
-        if (info.includes('nunca') || info.includes('1 año') || info.includes('2 año') || info.includes('3 año') || info.includes('año') || info.includes('ano') || info.includes('years') || info.includes('year')) {
-          return true;
-        }
-      }
-
-      return false;
-    });
-
-    const whatsappToken = process.env.WHATSAPP_TOKEN;
-    const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-    let sentCount = 0;
-    const fallidos: Array<{ phone: string; motivo: string }> = [];
-
-    for (const lead of eligibleLeads) {
-      // El mensaje cambia según si el servicio original fue Instalación o Mantención
-      const wasInstallation = lead.service_type === 'installation';
-      const equipos = lead.equipment_count && lead.equipment_count > 1
-        ? `tus ${lead.equipment_count} equipos`
-        : 'tu equipo';
-      const referencia = wasInstallation
-        ? `se cumple un año desde que instalamos ${equipos} de aire acondicionado`
-        : `se cumple un año desde la última mantención de ${equipos} de aire acondicionado`;
-
-      const campaignMessage =
-        `¡Hola! 👋 Te saluda el asistente virtual de *Furtz Clima*.\n\n` +
-        `Queremos contarte que ${referencia}. 🗓️\n\n` +
-        `Para mantener su rendimiento, evitar fallas y prolongar su vida útil, te recomendamos realizar la *mantención preventiva anual*.\n\n` +
-        `¿Te gustaría agendar tu visita? Respóndenos *SÍ* a este mensaje y coordinamos día y hora según nuestra disponibilidad. 😊`;
-
-      const r = await enviarWhatsApp({
-        to: lead.phone,
-        texto: campaignMessage,
-        plantilla: { nombre: 'recordatorio_mantencion_anual', variables: [equipos] }
-      });
-
-      const enviado = r.enviado;
-      const motivoFallo = r.motivo || null;
-
-      if (enviado) {
-        console.log(`[CAMPAÑA PREVENTIVA] Enviada a +${lead.phone} vía ${r.via}`);
-      } else {
-        console.error(`[CAMPAÑA PREVENTIVA] Falló para +${lead.phone}: ${motivoFallo}`);
-      }
-
-      // Solo se cuenta y se anota si el mensaje SALIÓ de verdad. Antes el contador
-      // subía igual aunque Meta rechazara el envío, y la ficha quedaba marcada como
-      // "Oferta enviada": el dashboard informaba envíos que nunca ocurrieron.
-      if (!enviado) {
-        fallidos.push({ phone: lead.phone, motivo: motivoFallo || 'desconocido' });
-        continue;
-      }
-
-      // El mensaje de campaña se guarda EN LA CONVERSACIÓN del cliente. Sin esto, cuando
-      // el cliente responde "SÍ", el bot no sabe qué le ofrecimos y lo trata como si
-      // escribiera por primera vez: le vuelve a preguntar qué servicio busca.
-      const conversacionPrevia = Array.isArray(lead.conversation) ? lead.conversation : [];
-
-      const updateData = {
-        notes: (lead.notes ? lead.notes + '\n' : '') + `[Campaña Preventiva]: Oferta enviada el ${new Date().toLocaleDateString('es-CL')}.`,
-        last_maintenance_info: lead.last_maintenance_info || 'Hace más de 1 año',
-        status: 'Pendiente',
-        service_type: lead.service_type || 'maintenance',
-        conversation: [...conversacionPrevia, { role: 'model', text: campaignMessage }].slice(-60),
-        last_message_at: new Date().toISOString()
-      };
-
-      if (db) {
-        await db.collection('leads').doc(lead.phone).update(updateData).catch(() => {});
-      }
-      updateLocalMock(lead.phone, updateData);
-
-      // El bot tiene la conversación en memoria; se borra para que la vuelva a leer
-      // desde la base y vea el mensaje de campaña que acabamos de enviar.
-      clearSession(lead.phone);
-
-      sentCount++;
-    }
-
+    const preview = req.body?.preview === true || req.query?.preview === 'true';
+    const r = await ejecutarCampanaPreventiva({ preview, origen: preview ? 'vista previa' : 'dashboard' });
     res.status(200).json({
       success: true,
-      count: sentCount,
-      candidatos: eligibleLeads.length,
-      fallidos: fallidos.length,
-      // Meta rechaza los mensajes iniciados por la empresa pasadas 24 h desde el
-      // último mensaje del cliente, salvo que se use una plantilla aprobada.
-      errores: fallidos.slice(0, 5)
+      preview: r.preview,
+      count: r.enviados,
+      candidatos: r.candidatos,
+      fallidos: r.fallidos.length,
+      errores: r.fallidos.slice(0, 5),
+      detalle: r.detalle
     });
   } catch (error: any) {
     console.error('Error al ejecutar la campaña preventiva:', error);

@@ -5,6 +5,7 @@ import whatsappRouter from './routes/whatsapp';
 import leadsRouter from './routes/leads';
 import aiControlRouter from './routes/aiControl';
 import financesRouter from './routes/finances';
+import { tal_vez_correr_campana_diaria } from './services/campanaPreventiva';
 
 dotenv.config();
 
@@ -20,12 +21,22 @@ app.use(express.urlencoded({ extended: true }));
 const STARTED_AT = new Date();
 
 // Health check endpoint
+//
+// Además de informar el estado, sirve de reloj: Cloud Run apaga el contenedor cuando
+// no hay tráfico, así que un temporizador en memoria no sobrevive. El uptime check
+// golpea esta ruta cada minuto, y ahí se aprovecha para preguntar si toca correr la
+// campaña preventiva del día. No bloquea la respuesta.
 app.get('/health', (req, res) => {
+  tal_vez_correr_campana_diaria().catch(err =>
+    console.error('[CAMPAÑA automática] Error no controlado:', err)
+  );
+
   res.status(200).json({
     status: 'OK',
     timestamp: new Date(),
     startedAt: STARTED_AT,
-    uptimeSeconds: Math.round(process.uptime())
+    uptimeSeconds: Math.round(process.uptime()),
+    campanaAutomatica: process.env.CAMPANA_AUTOMATICA === 'true'
   });
 });
 
