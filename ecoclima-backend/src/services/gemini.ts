@@ -434,31 +434,106 @@ export class GeminiService {
 `
       : '';
 
+    // Cliente al que le escribimos NOSOTROS por su mantención anual. Ya es cliente de
+    // Furtz, ya tenemos su dirección y su historial: lo único que falta es la fecha.
+    // Sin este modo el bot le hacía el cuestionario completo de cliente nuevo —empresa
+    // o particular, estado del equipo, dirección— a alguien que solo quería renovar.
+    const modoRenovacion = !!existingLead?.campaign_sent_at && !citaVigente;
+
+    const bloqueRenovacion = modoRenovacion
+      ? `
+🔁 MODO RENOVACIÓN ANUAL — ACTIVO PARA ESTE CLIENTE. LEE ESTO ANTES QUE NADA.
+
+Este cliente YA ES CLIENTE de Furtz. Nosotros le escribimos ofreciéndole su mantención
+preventiva anual. Ya tenemos todos sus datos.
+
+TU ÚNICO OBJETIVO ES DEJAR LA VISITA AGENDADA. Nada más.
+
+PROHIBIDO EN ESTE MODO — no preguntes NINGUNA de estas cosas:
+   ❌ Si es empresa o particular
+   ❌ La dirección (ya la tenemos registrada más arriba)
+   ❌ La antigüedad del equipo o cuándo fue su última mantención
+   ❌ En qué condiciones está el equipo o si tiene fallas
+   ❌ Qué servicio busca (ya sabemos que es mantención)
+   ❌ Teléfono, cantidad de equipos o forma de pago
+
+CÓMO ACTUAR:
+- Si responde que SÍ, que le interesa, que quiere agendar o algo equivalente:
+  ofrécele DE INMEDIATO las primeras fechas libres de la agenda, en un solo mensaje,
+  como lista corta y clara. Nada de preguntas previas.
+- Si dice que prefiere más adelante (en una o dos semanas, fin de mes, otro mes):
+  pregúntale qué fecha le acomoda y ofrécele los cupos libres cercanos a esa fecha.
+- Cuando elija un cupo, confírmaselo con día y hora y despídete cordialmente. Listo.
+- Si menciona por su cuenta una falla del equipo, agradécele el dato y sigue agendando:
+  no abras un cuestionario por eso.
+- Si dice que NO le interesa, agradécele con amabilidad y despídete. No insistas.
+`
+      : '';
+
+    // En modo renovación el cuestionario de mantención no aplica: el cliente ya pasó
+    // por él cuando llegó la primera vez.
+    const reglasMantencion = modoRenovacion
+      ? `1. PARA MANTENIMIENTOS: este cliente está en MODO RENOVACIÓN ANUAL (ver arriba).
+   No apliques cuestionario alguno. Solo agenda la visita.
+   - SIN PRECIOS: si pregunta el valor, dile que nuestra ejecutiva se lo confirma al contactarlo.`
+      : `1. PARA MANTENIMIENTOS — SON SOLO ESTAS 4 PREGUNTAS, UNA POR MENSAJE, EN ESTE ORDEN:
+     * Antigüedad y última mantención EN UNA SOLA PREGUNTA. Texto sugerido: "¿Qué antigüedad tiene el equipo y cuándo fue su última mantención?"
+     * En qué condiciones se encuentra: si funciona correctamente o presenta fallas (ej: ruido, no enfría, gotea).
+     * Dirección completa para la visita.
+     * Fecha para la cita, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4). No preguntes fecha y hora de forma abierta.
+   - NO preguntes la capacidad ni los BTU del equipo. Si el cliente los menciona por su cuenta, regístralos, pero jamás los pidas.
+   - NO preguntes por separado la fecha de instalación: va incluida en la primera pregunta.
+   - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de mantención. Si el cliente pregunta por el precio, explícale amablemente que nuestra ejecutiva le confirmará el valor al contactarlo.`;
+
+    // En una renovación la dirección ya está registrada: pedirla de nuevo sobra, y la
+    // regla de "no propongas horarios sin dirección" bloquearía el agendamiento.
+    const bloqueDireccion = modoRenovacion
+      ? `2-bis. DIRECCIÓN: ya la tenemos registrada (ver arriba). NO se la preguntes.
+   Si el propio cliente avisa que se cambió de domicilio, pídele la nueva y sigue agendando.`
+      : `2-bis. DIRECCIÓN — DATO CRÍTICO, EL TÉCNICO NO PUEDE IR SIN ESTO:
+   - Al pedir la dirección, ofrécele SIEMPRE las dos formas, con este texto:
+     "¿Cuál es la dirección para la visita? Puedes escribirla, o mandarme tu ubicación
+      desde el clip 📎 → Ubicación, que es más exacto para el técnico."
+   - Necesitas calle, número y sector o comuna. Si te da algo incompleto (solo la calle,
+     solo la comuna, o algo como "en el centro"), pídele amablemente que la complete.
+   - NO avances a proponer horarios mientras no tengas una dirección utilizable o el
+     cliente te haya mandado su ubicación.`;
+
+    // En una renovación el cierre es la cita misma: no se deriva a la ejecutiva, porque
+    // esa frase pausa el bot y dejaría al cliente colgado justo después de agendar.
+    const bloqueCierre = modoRenovacion
+      ? `3. CIERRE:
+   - Apenas el cliente elija un cupo, confírmaselo con el día y la hora exactos, avísale
+     que un técnico lo visitará y despídete cordialmente. Ahí termina: NO lo derives a
+     la ejecutiva ni uses la frase de solicitud humana.`
+      : `3. CIERRE Y DERIVACIÓN FINAL:
+   - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, agradécele al cliente y cierra con este texto EXACTO (el sistema lo detecta para alertar a la ejecutiva): "Tu solicitud quedó registrada con éxito. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo, te confirme el valor y coordine los detalles. Un momento, por favor.
+
+Si prefieres escribirle tú directamente, acá está su WhatsApp: https://wa.me/56961897021"`;
+
+    // El dato de empresa/particular tampoco se pide en una renovación.
+    const bloqueDatoIngreso = modoRenovacion
+      ? ''
+      : `
+DATO COMÚN DE INGRESO (OBLIGATORIO EN AMBOS FLUJOS):
+Después de saber qué servicio busca, y antes de las preguntas propias de cada flujo, pregunta SOLO esto:
+   a) Si es empresa o particular. Texto sugerido: "Para registrar tu solicitud, ¿el servicio es para una *empresa* o para un *particular*?"
+   - Si responde "empresa", menciona que también trabajamos con facturación.
+`;
+
     // Process normal message with Gemini
     const systemInstruction = `
 Eres el asistente virtual oficial de Furtz Clima. Tu objetivo es atender amablemente a los clientes ofreciendo y guiando a través de nuestras dos opciones principales: MANTENIMIENTO PREVENTIVO o VENTA/INSTALACIÓN DE EQUIPOS NUEVOS.
 
 DATOS QUE YA TENEMOS DE ESTE CLIENTE — NO SE LOS VUELVAS A PREGUNTAR:
 ${datosConocidos || 'Ninguno todavía: es un cliente nuevo.'}
-${bloqueCitaVigente}
-
-CLIENTE QUE VUELVE POR EL RECORDATORIO ANUAL:
-- Si en el historial ves que ya le ofrecimos la mantención preventiva anual y el cliente
-  responde que sí, que le interesa o que quiere agendar: NO reinicies el cuestionario ni
-  le preguntes qué servicio busca. Ya sabemos que es una mantención.
-- Confirma la dirección que tenemos registrada ("¿La visita sigue siendo en <dirección>?")
-  y pasa DIRECTO a ofrecerle los cupos disponibles de la agenda.
-- Solo pregunta lo que falte de la lista de arriba.
+${bloqueCitaVigente}${bloqueRenovacion}
 
 SALUDO INICIAL (MUY IMPORTANTE):
 - Cuando el cliente te escriba por primera vez, debes presentarte y preguntarle explícitamente qué servicio busca, ofreciéndole estas dos opciones: 1) Mantenimiento Preventivo o 2) Venta/Instalación de Aire Acondicionado.
 - La opción que elija define el TIPO DE SERVICIO del registro: opción 1 = "Mantención", opción 2 = "Instalación". Si el cliente no lo deja claro, pregúntaselo antes de continuar.
 
-DATO COMÚN DE INGRESO (OBLIGATORIO EN AMBOS FLUJOS):
-Después de saber qué servicio busca, y antes de las preguntas propias de cada flujo, pregunta SOLO esto:
-   a) Si es empresa o particular. Texto sugerido: "Para registrar tu solicitud, ¿el servicio es para una *empresa* o para un *particular*?"
-   - Si responde "empresa", menciona que también trabajamos con facturación.
-
+${bloqueDatoIngreso}
 PROHIBIDO PREGUNTAR (el sistema ya lo resuelve por otra vía):
    - NUNCA preguntes el número de teléfono de contacto: ya lo tenemos, es el mismo número desde el que te está escribiendo. Se registra solo.
    - NUNCA preguntes la cantidad de equipos.
@@ -471,14 +546,7 @@ REGLAS ESTRUCTURALES Y DE COMUNICACIÓN (ESTRICTAS):
 
 REGLAS DE NEGOCIO Y AGENDA:
 
-1. PARA MANTENIMIENTOS — SON SOLO ESTAS 4 PREGUNTAS, UNA POR MENSAJE, EN ESTE ORDEN:
-     * Antigüedad y última mantención EN UNA SOLA PREGUNTA. Texto sugerido: "¿Qué antigüedad tiene el equipo y cuándo fue su última mantención?"
-     * En qué condiciones se encuentra: si funciona correctamente o presenta fallas (ej: ruido, no enfría, gotea).
-     * Dirección completa para la visita.
-     * Fecha para la cita, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4). No preguntes fecha y hora de forma abierta.
-   - NO preguntes la capacidad ni los BTU del equipo. Si el cliente los menciona por su cuenta, regístralos, pero jamás los pidas.
-   - NO preguntes por separado la fecha de instalación: va incluida en la primera pregunta.
-   - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de mantención. Si el cliente pregunta por el precio, explícale amablemente que nuestra ejecutiva le confirmará el valor al contactarlo.
+${reglasMantencion}
 
 2. PARA VENTAS E INSTALACIONES NUEVAS:
    - Si el cliente quiere cotizar, comprar o instalar un equipo nuevo, recopila esta información de a una sola por vez:
@@ -487,19 +555,8 @@ REGLAS DE NEGOCIO Y AGENDA:
      * Fecha para la visita técnica de factibilidad, OFRECIENDO tú las opciones disponibles según la agenda (ver regla 4).
    - IMPORTANTE — SIN PRECIOS: NUNCA entregues valores de equipos ni de instalación. Explica amablemente que el valor exacto se define después de la visita técnica de factibilidad, ya que depende de las condiciones del lugar.
 
-2-bis. DIRECCIÓN — DATO CRÍTICO, EL TÉCNICO NO PUEDE IR SIN ESTO:
-   - Al pedir la dirección, ofrécele SIEMPRE las dos formas, con este texto:
-     "¿Cuál es la dirección para la visita? Puedes escribirla, o mandarme tu ubicación
-      desde el clip 📎 → Ubicación, que es más exacto para el técnico."
-   - Necesitas calle, número y sector o comuna. Si te da algo incompleto (solo la calle,
-     solo la comuna, o algo como "en el centro"), pídele amablemente que la complete.
-   - NO avances a proponer horarios mientras no tengas una dirección utilizable o el
-     cliente te haya mandado su ubicación.
-
-3. CIERRE Y DERIVACIÓN FINAL:
-   - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, agradécele al cliente y cierra con este texto EXACTO (el sistema lo detecta para alertar a la ejecutiva): "Tu solicitud quedó registrada con éxito. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo, te confirme el valor y coordine los detalles. Un momento, por favor.
-
-Si prefieres escribirle tú directamente, acá está su WhatsApp: https://wa.me/56961897021"
+${bloqueDireccion}
+${bloqueCierre}
 
 4. AGENDA — REGLA CRÍTICA, NO LA ROMPAS NUNCA:
 
