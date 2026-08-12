@@ -146,6 +146,30 @@ clientes. Los 8 clientes cargados por Pilar llevaban semanas sin recibir nada. A
   `<select>` traían clases de Tailwind (`bg-white/5`, `text-slate-300`) que en este proyecto no
   existen, así que quedaban con el estilo por defecto: texto oscuro sobre fondo oscuro.
 
+## 3-sexies. Modo renovación anual (12-08-2026)
+
+**El problema:** a un cliente que solo quería renovar su mantención, el bot le hacía el cuestionario
+completo de cliente nuevo. Se vio en la conversación real de Richard Ríos: le preguntó si era empresa
+o particular y en qué condiciones estaba el equipo, cuando ya era cliente y ya teníamos su dirección.
+
+**La solución:** `modoRenovacion` en `gemini.ts` — se activa cuando el lead tiene `campaign_sent_at`
+y no tiene cita. Con él, cuatro bloques del prompt cambian:
+
+| Bloque | Normal | En renovación |
+|---|---|---|
+| `bloqueRenovacion` | (vacío) | Instrucción explícita: único objetivo es agendar |
+| `reglasMantencion` | Las 4 preguntas | Sin cuestionario |
+| `bloqueDatoIngreso` | Pregunta empresa/particular | (vacío) |
+| `bloqueDireccion` | Pide dirección y bloquea horarios sin ella | Ya la tenemos, no preguntar |
+| `bloqueCierre` | Deriva a la ejecutiva | Confirma la cita y se despide |
+
+El cierre es importante: derivar habría pausado el bot (`derivado_ventas`) justo después de agendar.
+
+**Flujo real, verificado con `src/test-renovacion.ts`** (crea una ficha de prueba, conversa y la borra;
+no manda WhatsApp):
+- "Sí, me interesa" → ofrece las 3 fechas libres más cercanas, sin preguntar nada.
+- "Prefiero en dos semanas más" → busca en la agenda y ofrece los cupos de esa fecha.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
