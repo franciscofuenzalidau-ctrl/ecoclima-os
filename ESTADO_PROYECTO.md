@@ -170,6 +170,27 @@ no manda WhatsApp):
 - "Sí, me interesa" → ofrece las 3 fechas libres más cercanas, sin preguntar nada.
 - "Prefiero en dos semanas más" → busca en la agenda y ofrece los cupos de esa fecha.
 
+## 3-septies. Reglas de agenda del bot (12-08-2026)
+
+- **El bot SOLO ofrece 09:15 y 14:00.** Los horarios extra que agrega Pilar desde el calendario son
+  excepciones que ella coordina a mano: `cuposLibres()` los excluye (`cuposDelPeriodo(..., false)`)
+  y además filtra por `SLOT_TIMES` como segundo resguardo. `cuposDelPeriodo` sigue incluyéndolos por
+  defecto, porque el calendario del panel y el agendado manual sí deben verlos.
+- **Rangos de fecha**: si el cliente pide "la última semana del mes" o "en dos semanas", el bot ofrece
+  los cupos libres dentro de ese rango. Si responde "cualquiera" o "el que sea", elige él el primero
+  libre, lo confirma y cierra.
+- **Horario inexistente**: si pide "después de las 15:00" o "por la tarde", explica que solo hay 09:15
+  y 14:00 y ofrece esos dentro de los días que prefiera. Si insiste, deriva a la ejecutiva, que sí
+  puede abrir una hora excepcional.
+- **⚠️ Bug corregido — citas que se decían pero no se guardaban.** El cupo se detectaba solo en el
+  mensaje del CLIENTE (`detectarCupoElegido`). Cuando el cliente decía "cualquiera está bien", la
+  fecha aparecía únicamente en la respuesta del bot: este contestaba "Agendaré tu mantención para el
+  lunes 24 a las 09:15" y **no se guardaba nada**. El cliente quedaba convencido de tener hora y el
+  técnico no se enteraba. Ahora `detectarCupoConfirmadoPorElBot()` la rescata de la respuesta, con
+  tres resguardos para no agendar una simple oferta: verbo de cierre, que NO sea pregunta, y que
+  mencione un único cupo. Verificado con `src/test-renovacion.ts`, que ahora comprueba que la cita
+  quede realmente en Firestore (`appointment_iso`, `status`, `booked_by`, `technician`).
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
