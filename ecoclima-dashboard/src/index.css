@@ -1205,6 +1205,35 @@ input[type=number] {
 .tech-select-field option { background-color: #0b1220; color: #ffffff; }
 
 
+/* Quién cerró la hora: el agente por sí solo o una persona desde el panel.
+   Es la evidencia de cuántas visitas trae la IA sin intervención humana. */
+.autoria-cita {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.autoria-bot {
+  background-color: rgba(34, 211, 238, 0.14);
+  border-color: rgba(34, 211, 238, 0.35);
+  color: #a5f3fc;
+}
+
+.autoria-panel {
+  background-color: rgba(148, 163, 184, 0.14);
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #cbd5e1;
+}
+
+
 /* Desplegables del panel.
    Este proyecto NO usa Tailwind: las clases tipo `bg-white/5 text-slate-300` que
    traen algunos <select> en el JSX no existen y no pintan nada, así que quedaban

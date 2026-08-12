@@ -33,6 +33,13 @@ export async function enviarWhatsApp(opciones: {
   to: string;
   texto: string;
   plantilla?: { nombre: string; idioma?: string; variables?: string[] };
+  /**
+   * Invierte el orden: primero el texto libre y solo si Meta lo rechaza, la plantilla.
+   * Sirve cuando el texto lleva información que la plantilla aprobada no puede
+   * contener —por ejemplo los horarios disponibles— y vale la pena intentarlo por si
+   * la ventana de 24 h sigue abierta.
+   */
+  preferirTexto?: boolean;
 }): Promise<ResultadoEnvio> {
   const whatsappToken = process.env.WHATSAPP_TOKEN;
   const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -45,6 +52,23 @@ export async function enviarWhatsApp(opciones: {
   const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${whatsappToken}` };
   let motivoPlantilla: string | undefined;
+
+  // Con preferirTexto se prueba primero el texto libre: solo entra si la ventana de
+  // 24 h sigue abierta, y si Meta lo rechaza se sigue con la plantilla de más abajo.
+  if (opciones.preferirTexto) {
+    try {
+      await axios.post(url, {
+        messaging_product: 'whatsapp',
+        to: opciones.to,
+        type: 'text',
+        text: { body: opciones.texto }
+      }, { headers });
+      return { enviado: true, via: 'texto' };
+    } catch (err: any) {
+      const motivo = err.response?.data?.error?.message || err.message;
+      console.warn(`[WHATSAPP] Texto libre rechazado (ventana cerrada), se intenta la plantilla: ${motivo}`);
+    }
+  }
 
   if (opciones.plantilla) {
     try {

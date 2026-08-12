@@ -17,6 +17,7 @@ import { db } from './firebase';
 import { enviarWhatsApp } from './notificaciones';
 import { TECNICOS } from './notificaciones';
 import { clearSession } from './gemini';
+import { cuposLibres, etiquetaDeFecha, leerConfigAgenda, Slot } from './agenda';
 
 /** No volver a ofrecer mantención al mismo cliente antes de este plazo. */
 const DIAS_ENTRE_ENVIOS = 60;
@@ -213,6 +214,168 @@ export async function ejecutarCampanaPreventiva(
   return { preview: false, candidatos: candidatos.length, enviados, fallidos, detalle: aEnviar };
 }
 
+// ---------------------------------------------------------------------------
+// Seguimiento a las 24 h
+//
+// Si al día siguiente el cliente no contestó la oferta, se le insiste UNA vez,
+// esta vez con los días concretos que hay libres para que solo tenga que elegir.
+// ---------------------------------------------------------------------------
+
+/** Horas desde el envío de la campaña antes de insistir. */
+const HORAS_PARA_SEGUIMIENTO = 24;
+
+/** Cuántos días distintos se le nombran en el mensaje. */
+const DIAS_A_OFRECER = 3;
+
+function respondioDespuesDe(lead: any, desde: Date): boolean {
+  // Basta con que exista cualquier mensaje del cliente en la conversación guardada:
+  // la campaña se escribe como 'model', así que un 'user' posterior es respuesta suya.
+  if (!Array.isArray(lead.conversation)) return false;
+  const idx = lead.conversation.findIndex(
+    (m: any) => m?.role === 'model' && String(m.text || '').includes('mantención preventiva anual')
+  );
+  const posteriores = idx >= 0 ? lead.conversation.slice(idx + 1) : lead.conversation;
+  return posteriores.some((m: any) => m?.role === 'user');
+}
+
+export function seleccionarParaSeguimiento(allLeads: any[], ahora: Date = new Date()): CandidatoCampana[] {
+  const limite = new Date(ahora.getTime() - HORAS_PARA_SEGUIMIENTO * 60 * 60 * 1000);
+  const salida: CandidatoCampana[] = [];
+
+  for (const lead of allLeads) {
+    if (!lead.phone) continue;
+    if (TELEFONOS_TECNICOS.has(String(lead.phone))) continue;
+
+    // Ya agendó, lo cancelaron o lo tomó una persona: no se insiste.
+    if (lead.appointment_time) continue;
+    if (lead.status === 'Cancelado' || lead.status === 'derivado_ventas' || lead.status === 'Agendado') continue;
+
+    // Solo a quien se le mandó la campaña y ya pasaron las 24 h.
+    const enviada = fechaValida(lead.campaign_sent_at);
+    if (!enviada || enviada > limite) continue;
+
+    // Se insiste UNA sola vez.
+    if (lead.followup_sent_at) continue;
+
+    // Si contestó, la conversación sigue su curso con el bot: no se le interrumpe.
+    if (respondioDespuesDe(lead, enviada)) continue;
+
+    salida.push({
+      phone: String(lead.phone),
+      client_name: lead.client_name,
+      motivo: `Sin respuesta desde el ${enviada.toLocaleDateString('es-CL')}`,
+      ultimaAtencion: null
+    });
+  }
+
+  return salida;
+}
+
+function armarMensajeSeguimiento(lead: any, disponibles: Slot[]): string {
+  const porDia = new Map<string, string[]>();
+  for (const c of disponibles) {
+    if (!porDia.has(c.date)) porDia.set(c.date, []);
+    porDia.get(c.date)!.push(c.time);
+  }
+
+  const lineas = [...porDia.entries()]
+    .slice(0, DIAS_A_OFRECER)
+    .map(([fecha, horas]) => `• ${etiquetaDeFecha(fecha)}: ${horas.join(' o ')}`)
+    .join('\n');
+
+  const equipos = lead.equipment_count && lead.equipment_count > 1 ? 'tus equipos' : 'tu equipo';
+
+  return (
+    `¡Hola de nuevo! 👋 Soy el asistente de *Furtz Clima*.\n\n` +
+    `Te escribí ayer por la *mantención preventiva anual* de ${equipos}. ` +
+    `Para hacértelo más fácil, estos son los horarios que tenemos libres:\n\n` +
+    `${lineas}\n\n` +
+    `¿Cuál te acomoda? Respóndeme con el día y la hora y te dejo la visita agendada al instante. 😊\n\n` +
+    `Si prefieres otro momento, dímelo y buscamos alternativas.`
+  );
+}
+
+export async function ejecutarSeguimiento24h(
+  opciones: { preview?: boolean } = {}
+): Promise<ResultadoCampana> {
+  const preview = opciones.preview === true;
+  const allLeads = await cargarLeads();
+  const porTelefono = new Map(allLeads.map(l => [String(l.phone), l]));
+  const candidatos = seleccionarParaSeguimiento(allLeads);
+  const aEnviar = candidatos.slice(0, TOPE_POR_CORRIDA);
+
+  if (preview) {
+    return { preview: true, candidatos: candidatos.length, enviados: 0, fallidos: [], detalle: aEnviar };
+  }
+  if (aEnviar.length === 0) {
+    return { preview: false, candidatos: 0, enviados: 0, fallidos: [], detalle: [] };
+  }
+
+  // Los cupos se leen UNA vez y se reparten entre todos: si se leyeran por cliente,
+  // dos personas podrían recibir el mismo horario como "libre" en la misma corrida.
+  const ocupados: string[] = [];
+  for (const l of allLeads) {
+    if (l.appointment_iso && l.status !== 'Cancelado') ocupados.push(l.appointment_iso);
+  }
+  const configAgenda = await leerConfigAgenda();
+  const disponibles = cuposLibres(ocupados, 21, new Date(), configAgenda);
+
+  if (disponibles.length === 0) {
+    console.log('[SEGUIMIENTO] No hay cupos libres: no se insiste para no ofrecer lo que no existe.');
+    return { preview: false, candidatos: candidatos.length, enviados: 0, fallidos: [], detalle: aEnviar };
+  }
+
+  const fallidos: Array<{ phone: string; motivo: string }> = [];
+  let enviados = 0;
+
+  for (const candidato of aEnviar) {
+    const lead = porTelefono.get(candidato.phone);
+    if (!lead) continue;
+
+    const mensaje = armarMensajeSeguimiento(lead, disponibles);
+    const equipos = lead.equipment_count && lead.equipment_count > 1
+      ? `tus ${lead.equipment_count} equipos`
+      : 'tu equipo';
+
+    // Se intenta el texto con los horarios concretos. Si la ventana de 24 h de Meta
+    // está cerrada —lo habitual con quien no contestó— cae a la plantilla aprobada,
+    // que sí puede entrar pero no lleva los días dentro.
+    const r = await enviarWhatsApp({
+      to: candidato.phone,
+      texto: mensaje,
+      plantilla: { nombre: 'recordatorio_mantencion_anual', variables: [equipos] },
+      preferirTexto: true
+    });
+
+    if (!r.enviado) {
+      console.error(`[SEGUIMIENTO] Falló para +${candidato.phone}: ${r.motivo}`);
+      fallidos.push({ phone: candidato.phone, motivo: r.motivo || 'desconocido' });
+      continue;
+    }
+
+    console.log(`[SEGUIMIENTO] Insistencia enviada a +${candidato.phone} vía ${r.via}`);
+
+    const conversacionPrevia = Array.isArray(lead.conversation) ? lead.conversation : [];
+    const ahoraISO = new Date().toISOString();
+
+    const updateData: Record<string, any> = {
+      notes: (lead.notes ? lead.notes + '\n' : '') +
+        `[Seguimiento 24h]: Segundo aviso con horarios enviado el ${new Date().toLocaleDateString('es-CL')}.`,
+      conversation: [...conversacionPrevia, { role: 'model', text: mensaje }].slice(-60),
+      last_message_at: ahoraISO,
+      followup_sent_at: ahoraISO
+    };
+
+    if (db) {
+      await db.collection('leads').doc(candidato.phone).update(updateData).catch(() => {});
+    }
+    clearSession(candidato.phone);
+    enviados++;
+  }
+
+  return { preview: false, candidatos: candidatos.length, enviados, fallidos, detalle: aEnviar };
+}
+
 /**
  * Disparo automático diario.
  *
@@ -251,7 +414,19 @@ export async function tal_vez_correr_campana_diaria(): Promise<void> {
     const r = await ejecutarCampanaPreventiva({ origen: 'automática' });
     console.log(`[CAMPAÑA automática] ${r.enviados} enviados de ${r.candidatos} candidatos.`);
 
-    await ref.set({ ultimo_resultado: { enviados: r.enviados, candidatos: r.candidatos } }, { merge: true });
+    // En la misma pasada se insiste con quienes no contestaron la oferta de ayer.
+    const s = await ejecutarSeguimiento24h();
+    if (s.candidatos > 0) {
+      console.log(`[SEGUIMIENTO automático] ${s.enviados} insistencias de ${s.candidatos} sin respuesta.`);
+    }
+
+    await ref.set({
+      ultimo_resultado: {
+        enviados: r.enviados,
+        candidatos: r.candidatos,
+        seguimientos: s.enviados
+      }
+    }, { merge: true });
   } catch (err: any) {
     console.error('[CAMPAÑA automática] Error:', err.message);
   } finally {

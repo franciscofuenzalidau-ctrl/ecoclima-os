@@ -10,7 +10,7 @@ import {
   cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
   leerConfigAgenda, guardarConfigAgenda
 } from '../services/agenda';
-import { ejecutarCampanaPreventiva } from '../services/campanaPreventiva';
+import { ejecutarCampanaPreventiva, ejecutarSeguimiento24h } from '../services/campanaPreventiva';
 
 const router = Router();
 
@@ -491,7 +491,14 @@ router.put('/:phone/appointment', async (req: Request, res: Response) => {
   let update: any;
 
   if (slotId === null || slotId === '') {
-    update = { appointment_iso: null, appointment_time: null };
+    // Al liberar el cupo se borra también la autoría: la ficha vuelve a estar sin hora.
+    update = {
+      appointment_iso: null,
+      appointment_time: null,
+      booked_by: null,
+      booked_at: null,
+      status: 'Pendiente'
+    };
   } else {
     if (typeof slotId !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(slotId)) {
       return res.status(400).json({ error: 'Formato de cupo inválido.' });
@@ -525,7 +532,15 @@ router.put('/:phone/appointment', async (req: Request, res: Response) => {
     }
 
     const cupo = construirCupo(fecha, hora);
-    update = { appointment_iso: cupo.id, appointment_time: cupo.label };
+    // Queda marcado que la hora la puso una persona desde el panel, no el agente.
+    // Así se puede distinguir después cuántas visitas cerró la IA por sí sola.
+    update = {
+      appointment_iso: cupo.id,
+      appointment_time: cupo.label,
+      booked_by: 'panel',
+      booked_at: new Date().toISOString(),
+      status: 'Agendado'
+    };
   }
 
   try {
@@ -932,6 +947,28 @@ router.post('/send-preventive-offers', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error al ejecutar la campaña preventiva:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/leads/send-followups - Segundo aviso a quienes no contestaron la oferta
+// pasadas 24 h, esta vez con los horarios libres concretos.
+// Con { "preview": true } no envía nada.
+router.post('/send-followups', async (req: Request, res: Response) => {
+  try {
+    const preview = req.body?.preview === true || req.query?.preview === 'true';
+    const r = await ejecutarSeguimiento24h({ preview });
+    res.status(200).json({
+      success: true,
+      preview: r.preview,
+      count: r.enviados,
+      candidatos: r.candidatos,
+      fallidos: r.fallidos.length,
+      errores: r.fallidos.slice(0, 5),
+      detalle: r.detalle
+    });
+  } catch (error: any) {
+    console.error('Error al ejecutar el seguimiento de 24 h:', error);
     res.status(500).json({ error: error.message });
   }
 });

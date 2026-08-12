@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { 
   Users, 
   Wrench, 
@@ -45,8 +45,11 @@ interface Lead {
   area_m2?: number;
   calculated_btu?: string;
   created_at: string;
-  status?: 'Pendiente' | 'Evaluado' | 'Instalado' | 'Cancelado' | 'pendiente_revision' | 'derivado_ventas';
+  status?: 'Pendiente' | 'Agendado' | 'Evaluado' | 'Instalado' | 'Cancelado' | 'pendiente_revision' | 'derivado_ventas';
   technician?: string;
+  /** Quién tomó la hora: 'bot' si la cerró el agente solo, 'panel' si la puso una persona. */
+  booked_by?: 'bot' | 'panel' | null;
+  booked_at?: string | null;
   technical_notes?: string;
   notes?: string;
   client_type?: 'empresa' | 'particular' | null;
@@ -58,6 +61,21 @@ interface Lead {
   conversation?: Array<{ role: 'user' | 'model'; text: string }>;
   last_message_at?: string;
 }
+
+// Clave de traducción de cada estado. Antes esto era una cadena de ternarios que
+// terminaba en 'cancelled': cualquier estado no contemplado —como "Agendado"— se
+// mostraba al usuario como "Cancelado".
+const CLAVE_ESTADO: Record<string, string> = {
+  'Pendiente': 'pending',
+  'Agendado': 'agendado',
+  'Evaluado': 'evaluated',
+  'Instalado': 'installed',
+  'Cancelado': 'cancelled',
+  'pendiente_revision': 'pendiente_revision',
+  'derivado_ventas': 'derivado_ventas'
+};
+
+const claveEstado = (status?: string) => CLAVE_ESTADO[status || 'Pendiente'] || 'pending';
 
 // Técnicos que se pueden asignar, con su teléfono REAL verificado.
 // Para sumar un técnico: agrega una línea aquí con su nombre y su número.
@@ -386,11 +404,14 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
 
     // Status Select Options
     status_pending: "Pendiente",
+    status_agendado: "Agendado",
     status_evaluated: "Evaluado",
     status_installed: "Servicio completo",
     status_cancelled: "Cancelado",
     status_pendiente_revision: "Pendiente de Revisión",
     status_derivado_ventas: "Derivado a Ventas",
+    booked_by_bot: "Agendado por el bot",
+    booked_by_panel: "Agendado desde el panel",
 
     // Manual Client Registration
     btn_add_client: "Registrar Cliente",
@@ -684,11 +705,14 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
 
     // Status Select Options
     status_pending: "Pending",
+    status_agendado: "Scheduled",
     status_evaluated: "Evaluated",
     status_installed: "Service completed",
     status_cancelled: "Cancelled",
     status_pendiente_revision: "Pending Review",
     status_derivado_ventas: "Referred to Sales",
+    booked_by_bot: "Booked by the bot",
+    booked_by_panel: "Booked from the panel",
 
     // Manual Client Registration
     btn_add_client: "Add Client",
@@ -2003,13 +2027,14 @@ export default function App() {
                             </span>
                             <span className={`text-[8px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 rounded border ${
                               status === 'Instalado' ? 'bg-emerald-500/25 text-emerald-200 border-emerald-500/35' :
+                              status === 'Agendado' ? 'bg-cyan-500/25 text-cyan-200 border-cyan-500/35' :
                               status === 'Evaluado' ? 'bg-blue-500/25 text-blue-200 border-blue-500/35' :
                               status === 'Cancelado' ? 'bg-red-500/25 text-red-200 border-red-500/35' :
                               status === 'pendiente_revision' ? 'bg-amber-500/25 text-amber-200 border-amber-500/35' :
                               status === 'derivado_ventas' ? 'bg-indigo-500/25 text-indigo-200 border-indigo-500/35' :
                               'bg-amber-500/25 text-amber-200 border-amber-500/35'
                             }`}>
-                              {t('status_' + (status === 'Pendiente' ? 'pending' : status === 'Evaluado' ? 'evaluated' : status === 'Instalado' ? 'installed' : status === 'pendiente_revision' ? 'pendiente_revision' : status === 'derivado_ventas' ? 'derivado_ventas' : 'cancelled'), status)}
+                              {t('status_' + claveEstado(status), status)}
                             </span>
                           </div>
                         </div>
@@ -2343,6 +2368,7 @@ export default function App() {
                     >
                       <option value="todos">{t('opt_all_statuses', 'Todos los estados')}</option>
                       <option value="Pendiente">{t('status_pending', 'Pendiente')}</option>
+                      <option value="Agendado">{t('status_agendado', 'Agendado')}</option>
                       <option value="Evaluado">{t('status_evaluated', 'Evaluado')}</option>
                       <option value="Instalado">{t('status_installed', 'Instalado')}</option>
                       <option value="Cancelado">{t('status_cancelled', 'Cancelado')}</option>
@@ -2452,6 +2478,16 @@ export default function App() {
                               <Calendar className="h-3.5 w-3.5 text-cyan-400/90" />
                               {lead.appointment_time || t('lbl_to_define', 'Por definir')}
                             </div>
+                            {lead.appointment_time && lead.booked_by && (
+                              <div
+                                className={`autoria-cita ${lead.booked_by === 'bot' ? 'autoria-bot' : 'autoria-panel'}`}
+                                title={lead.booked_at ? new Date(lead.booked_at).toLocaleString('es-CL') : undefined}
+                              >
+                                {lead.booked_by === 'bot'
+                                  ? `🤖 ${t('booked_by_bot', 'Agendado por el bot')}`
+                                  : `👤 ${t('booked_by_panel', 'Agendado desde el panel')}`}
+                              </div>
+                            )}
                             {lead.notes && (
                               <div className="mt-2 text-[11px] text-slate-300 bg-[#0c1322] border border-cyan-500/15 rounded-lg p-2 max-w-[220px] leading-relaxed font-medium">
                                 <div className="flex items-center gap-1 text-[10px] font-bold text-cyan-400 mb-0.5">
@@ -2513,6 +2549,7 @@ export default function App() {
                                 className={`status-dropdown status-select-${(lead.status || 'Pendiente').toLowerCase()}`}
                               >
                                 <option value="Pendiente">{t('status_pending', 'Pendiente')}</option>
+                      <option value="Agendado">{t('status_agendado', 'Agendado')}</option>
                                 <option value="Evaluado">{t('status_evaluated', 'Evaluado')}</option>
                                 <option value="Instalado">{t('status_installed', 'Instalado')}</option>
                                 <option value="Cancelado">{t('status_cancelled', 'Cancelado')}</option>
@@ -3553,6 +3590,7 @@ export default function App() {
                     className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-cyan-400/50"
                   >
                     <option value="Pendiente">{t('status_pending', 'Pendiente')}</option>
+                      <option value="Agendado">{t('status_agendado', 'Agendado')}</option>
                     <option value="Evaluado">{t('status_evaluated', 'Evaluado')}</option>
                     <option value="Instalado">{t('status_installed', 'Instalado')}</option>
                     <option value="Cancelado">{t('status_cancelled', 'Cancelado')}</option>

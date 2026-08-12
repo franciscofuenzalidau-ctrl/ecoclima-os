@@ -77,6 +77,10 @@ interface UserSession {
     payment_method?: string;
     /** Técnico asignado. El bot lo fija al agendar para poder avisarle. */
     technician?: string;
+    /** Quién tomó la hora: el propio bot o alguien desde el panel. */
+    booked_by?: 'bot' | 'panel';
+    /** Cuándo se agendó, en ISO. */
+    booked_at?: string;
   };
 }
 
@@ -90,7 +94,8 @@ const HYDRATED_FIELDS = [
   'service_type', 'installation_age', 'address', 'appointment_time', 'appointment_iso', 'latitude', 'longitude',
   'area_m2', 'calculated_btu', 'notes', 'status', 'last_maintenance_info', 'is_working_correctly',
   'installation_date', 'last_maintenance_date', 'satisfaction_rating', 'satisfaction_comment',
-  'client_type', 'contact_phone', 'equipment_count', 'payment_method', 'technician'
+  'client_type', 'contact_phone', 'equipment_count', 'payment_method', 'technician',
+  'booked_by', 'booked_at'
 ] as const;
 
 // Helper to get or create session
@@ -414,12 +419,28 @@ export class GeminiService {
       d.calculated_btu ? `- Capacidad: ${d.calculated_btu}` : null
     ].filter(Boolean).join('\n');
 
+    // Si el cliente YA tiene hora —la haya tomado él por el chat o se la haya puesto
+    // Pilar a mano desde el panel— hay que decírselo al modelo. Sin esto el bot no se
+    // entera y le vuelve a ofrecer cupos a alguien que ya está agendado.
+    const citaVigente = session.leadData.appointment_time || existingLead?.appointment_time || null;
+    const bloqueCitaVigente = citaVigente
+      ? `
+⚠️ ESTE CLIENTE YA TIENE VISITA AGENDADA: ${citaVigente}
+- NO le ofrezcas cupos ni le preguntes por fechas: ya tiene hora tomada.
+- Si escribe para confirmar o consultar, recuérdale amablemente su día y hora.
+- Si quiere CAMBIAR la hora, no se la cambies tú: dile que nuestra ejecutiva lo
+  reagenda y usa la frase exacta de la regla de SOLICITUD HUMANA.
+- Si escribe por un tema distinto, atiéndelo con normalidad sin volver a agendar.
+`
+      : '';
+
     // Process normal message with Gemini
     const systemInstruction = `
 Eres el asistente virtual oficial de Furtz Clima. Tu objetivo es atender amablemente a los clientes ofreciendo y guiando a través de nuestras dos opciones principales: MANTENIMIENTO PREVENTIVO o VENTA/INSTALACIÓN DE EQUIPOS NUEVOS.
 
 DATOS QUE YA TENEMOS DE ESTE CLIENTE — NO SE LOS VUELVAS A PREGUNTAR:
 ${datosConocidos || 'Ninguno todavía: es un cliente nuevo.'}
+${bloqueCitaVigente}
 
 CLIENTE QUE VUELVE POR EL RECORDATORIO ANUAL:
 - Si en el historial ves que ya le ofrecimos la mantención preventiva anual y el cliente
@@ -571,7 +592,12 @@ ${surveyMode ? `
         if (elegido && session.leadData.appointment_iso !== elegido.id) {
           session.leadData.appointment_iso = elegido.id;
           session.leadData.appointment_time = elegido.label;
-          console.log(`[AGENDA] +${cleanPhone} tomó el cupo ${elegido.id} (${elegido.label}).`);
+          // Queda registrado que la hora la cerró el agente, no una persona. Es lo que
+          // permite después contar cuántas visitas trajo la IA por sí sola.
+          session.leadData.booked_by = 'bot';
+          session.leadData.booked_at = new Date().toISOString();
+          session.leadData.status = 'Agendado';
+          console.log(`[AGENDA] +${cleanPhone} tomó el cupo ${elegido.id} (${elegido.label}) — agendado por el bot.`);
           citaReciénAgendada = true;
         }
       }
@@ -597,20 +623,25 @@ ${surveyMode ? `
         const hasAddress = !!session.leadData.address;
         // Solo cuenta como agendado si tomó un cupo real de la agenda.
         const hasTime = !!session.leadData.appointment_iso;
-        
+
+        // "Agendado" manda por sobre "pendiente_revision": si el cliente ya tiene hora,
+        // eso es lo que Pilar necesita ver en el panel. Sin este resguardo, completar el
+        // cuestionario después de agendar borraba el estado y la ficha volvía a la cola.
+        const yaAgendado = session.leadData.status === 'Agendado';
+
         if (session.leadData.service_type === 'maintenance') {
           // Antigüedad y última mantención ahora se preguntan juntas: basta con capturar una de las dos.
           // Ya no se exigen los BTU, porque el bot dejó de preguntarlos.
           const hasHistory = !!session.leadData.installation_age || !!session.leadData.last_maintenance_info;
           const hasStatus = session.leadData.is_working_correctly !== undefined;
 
-          if (hasHistory && hasStatus && hasAddress && hasTime) {
+          if (hasHistory && hasStatus && hasAddress && hasTime && !yaAgendado) {
             session.leadData.status = 'pendiente_revision';
           }
         } else if (session.leadData.service_type === 'installation') {
           const hasM2 = !!session.leadData.area_m2;
-          
-          if (hasM2 && hasAddress && hasTime) {
+
+          if (hasM2 && hasAddress && hasTime && !yaAgendado) {
             session.leadData.status = 'pendiente_revision';
           }
         }
@@ -916,6 +947,8 @@ ${conversacion}`;
           satisfaction_rating: leadData.satisfaction_rating || null,
           satisfaction_comment: leadData.satisfaction_comment || null,
           ...(leadData.technician ? { technician: leadData.technician } : {}),
+          // Quién cerró la hora. Solo se escribe si existe, para no borrar lo que puso el panel.
+          ...(leadData.booked_by ? { booked_by: leadData.booked_by, booked_at: leadData.booked_at || null } : {}),
           // Solo se escribe si hay historial, para no borrar el que ya estaba guardado.
           ...(conversation ? { conversation, last_message_at: lastMessageAt } : {}),
           created_at: createdAt
