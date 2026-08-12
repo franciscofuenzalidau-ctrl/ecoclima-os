@@ -61,7 +61,7 @@ Todo en `src/services/gemini.ts` (systemInstruction + extractLeadInfo) y `src/ro
 - **Recordatorio anual**: al marcar "Instalado" se graba automáticamente `installation_date` o `last_maintenance_date` (antes era manual y la campaña no encontraba clientes). El mensaje de campaña se adapta a instalación/mantención y a la cantidad de equipos.
 - **Encuesta de satisfacción**: al pasar a "Instalado" el bot envía 4 preguntas (nota 1-7, expectativas, recomendación, comentario libre) y pide autorización para usar el testimonio. Se guarda en `satisfaction_rating` y `satisfaction_comment`.
 - **Precios de mantención en `config_reglas.json`**: `maintenance_cost_small` 59000 y `maintenance_cost_large` 65000 (referencia interna; el bot no los dice).
-- ⚠️ **Limitación WhatsApp**: mensajes iniciados por la empresa (encuesta y recordatorio anual) requieren **plantilla aprobada por Meta** si pasaron +24 h desde el último mensaje del cliente. Para la campaña anual siempre aplica. PENDIENTE crear la plantilla.
+- ✅ **Plantillas de WhatsApp aprobadas por Meta (11-08-2026)**: los mensajes iniciados por la empresa requieren plantilla aprobada cuando pasaron +24 h desde el último mensaje del cliente. Las tres están aprobadas y en uso: `recordatorio_mantencion_anual` (MARKETING, 1 variable), `post_servicio_pago_encuesta` (UTILITY, sin variables) y `aviso_visita_tecnico` (UTILITY, 5 variables). El código intenta la plantilla primero y cae a texto libre si falla.
 
 ## 3-ter. Limpieza y monitoreo (31-07-2026)
 
@@ -84,14 +84,15 @@ Todo en `src/services/gemini.ts` (systemInstruction + extractLeadInfo) y `src/ro
 - [x] **Repo limpio** — los ~50 archivos de la página Devpost guardada salieron del control de versiones. El repositorio rastrea 53 archivos: `ecoclima-backend/`, `ecoclima-dashboard/`, `Product_Evidence/`, `README.md`, `ESTADO_PROYECTO.md`, `LICENSE` y `.gitignore`. *(31-07-2026)*
 - [x] **README en inglés** para los jueces — arquitectura, qué decide la IA, cómo correrlo, variables de entorno y cómo probar el webhook. *(31-07-2026)*
 - [x] **Alerta de disponibilidad** — uptime check sobre `/health` cada 1 min con alerta por correo si el bot cae. *(31-07-2026)*
-- [x] **Carpeta de evidencia** — `Product_Evidence/` con logs de ejecución de Gemini, métricas de la API (27 llamadas, 35.883 tokens, 96% de éxito), leads de producción y health check. *(01-08-2026)*
+- [x] **Carpeta de evidencia** — `Product_Evidence/` con logs de ejecución de Gemini, métricas de la API, leads de producción y health check. *(01-08-2026)*
+- [x] **Plantillas de WhatsApp aprobadas por Meta** — las 3 (`recordatorio_mantencion_anual`, `post_servicio_pago_encuesta`, `aviso_visita_tecnico`). El bot ya puede iniciar conversaciones. *(11-08-2026)*
+- [x] **Agenda real con cupos** — 2 por día (09:15 y 14:00), lunes a viernes, editable desde el dashboard. El bot recibe la fecha de hoy y la agenda de 3 semanas, y solo ofrece cupos que existen. *(11-08-2026)*
 
 ### ⏳ Realmente pendientes
 
 - [ ] **Variables SMTP** (`SMTP_HOST/PORT/USER/PASS`): usadas por `leads.ts` (exportar por email) pero NO configuradas ni en `.env` ni en Cloud Run. Esa función fallará hasta configurarlas o deshabilitarla.
 - [ ] **Rotar claves** (Gemini, Maps) — llevan meses sin rotar y estuvieron en este disco.
 - [ ] **Servicios fantasma**: en el proyecto `massive-physics-412101` quedan 2 servicios Cloud Run `ecoclima-os` (us-east1 y us-central1) sin tráfico y con sus activadores de Cloud Build inhabilitados. Borrarlos cuando se confirme que no hacen falta.
-- [ ] **Plantilla de Meta** para mensajes iniciados por la empresa (encuesta de satisfacción y recordatorio anual a +24 h del último mensaje del cliente). Ver sección 3-bis.
 
 > Los pendientes de la **postulación** al XPRIZE (video, ingresos, autorización del dueño, testimonios)
 > se llevan aparte, en `CHECKLIST_ENTREGA_XPRIZE.md`.
