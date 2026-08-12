@@ -48,9 +48,12 @@ async function main() {
   clearSession(TELEFONO);
   console.log(`Ficha de prueba creada para +${TELEFONO} (con campaña enviada hace 26 h).\n`);
 
+  // El segundo y tercer mensaje replican el caso real de Richard Ríos: pide un rango
+  // ("última semana del mes") y una hora que no existe ("después de las 15:00").
   const guiones = [
     'Sí, me interesa',
-    'Prefiero en dos semanas más'
+    'Tengo disponibilidad horario última semana del mes después de las 15 hrs. Gracias.',
+    'Ya, cualquiera de esos está bien, el que sea'
   ];
 
   try {
@@ -59,6 +62,15 @@ async function main() {
       const r = await geminiService.handleUserMessage(TELEFONO, texto);
       console.log(`------------------- BOT:\n${r}\n`);
     }
+    // Lo que de verdad importa: que la cita haya quedado GUARDADA, no solo dicha.
+    const doc = await db.collection('leads').doc(TELEFONO).get();
+    const d = doc.data() || {};
+    console.log('\n=================== ¿QUEDÓ GUARDADA LA CITA?');
+    console.log(`  appointment_iso : ${d.appointment_iso || '❌ NADA'}`);
+    console.log(`  appointment_time: ${d.appointment_time || '❌ NADA'}`);
+    console.log(`  status          : ${d.status}`);
+    console.log(`  booked_by       : ${d.booked_by || '❌ NADA'}`);
+    console.log(`  technician      : ${d.technician || '❌ NADA'}`);
   } finally {
     await db.collection('leads').doc(TELEFONO).delete();
     clearSession(TELEFONO);

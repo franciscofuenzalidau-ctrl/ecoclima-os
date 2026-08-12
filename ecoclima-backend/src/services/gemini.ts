@@ -5,7 +5,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { aiLogger } from './aiLogger';
 import { db } from './firebase';
-import { ahoraEnChile, cuposLibres, detectarCupoElegido, etiquetaDeFecha, leerConfigAgenda } from './agenda';
+import { ahoraEnChile, cuposLibres, detectarCupoElegido, etiquetaDeFecha, leerConfigAgenda, Slot } from './agenda';
 import { avisarTecnicoDeVisita, TECNICO_POR_DEFECTO } from './notificaciones';
 
 dotenv.config();
@@ -186,6 +186,44 @@ async function getExistingLead(phone: string): Promise<any> {
 }
 
 /** Identificadores de cupo ya tomados (`appointment_iso`), para no ofrecerlos dos veces. */
+/**
+ * Verbos con los que el bot cierra una cita. Se usa la raíz "agend" porque el modelo
+ * varía la forma cada vez: "agendaré", "agendaremos", "queda agendada", "agendado".
+ */
+const CONFIRMA_CITA = /\b(agend\w*|confirmad\w*|reservad\w*)\b/i;
+
+/**
+ * Cuando el cliente deja que el bot elija ("cualquiera", "el que sea"), la fecha solo
+ * existe en la respuesta del bot. Esta función la rescata para poder guardarla.
+ *
+ * Tres filtros para no agendar por error algo que el bot solo estaba ofreciendo:
+ *   1. el texto usa un verbo de cierre,
+ *   2. NO es una pregunta —si pregunta, está ofreciendo y espera respuesta—,
+ *   3. menciona UN solo cupo de la lista.
+ * El filtro 2 es el que evita el caso peligroso: cuando queda un único cupo libre y el
+ * bot pregunta "¿te sirve el lunes 24 a las 09:15?", eso no es una cita cerrada.
+ */
+function detectarCupoConfirmadoPorElBot(replyText: string, disponibles: Slot[]): Slot | null {
+  if (!replyText || !CONFIRMA_CITA.test(replyText)) return null;
+
+  // Se ignora el enlace de ayuda del pie, que va en todos los mensajes.
+  const cuerpo = replyText.split('Si no quieres mantención')[0];
+  if (cuerpo.includes('?') || cuerpo.includes('¿')) return null;
+
+  const texto = cuerpo.toLowerCase();
+
+  const mencionados = disponibles.filter(c => {
+    // La etiqueta tal cual ("lunes 24 de agosto de 2026 a las 14:00")...
+    if (texto.includes(c.label.toLowerCase())) return true;
+    // ...o el día y la hora sueltos, tolerando el formato que use el modelo.
+    const diaNum = Number(c.date.split('-')[2]);
+    const patron = new RegExp(`\\b${diaNum}\\b[^.\\n]{0,60}?${c.time.replace(':', '[:.]')}`, 'i');
+    return patron.test(texto);
+  });
+
+  return mencionados.length === 1 ? mencionados[0] : null;
+}
+
 async function getOccupiedSlotIds(): Promise<string[]> {
   const ocupados: string[] = [];
   if (db) {
@@ -576,6 +614,21 @@ ${calendarContext}
      las horas libres que tenga. La lista abarca las próximas tres semanas, no solo los primeros días.
    - Solo si el día que pide NO aparece en la lista dile que no hay disponibilidad, y ofrécele el
      día libre más cercano a lo que pidió.
+
+   CUANDO PIDE UN RANGO Y NO UN DÍA EXACTO ("la última semana del mes", "en dos semanas más",
+   "a fin de mes", "la próxima semana"):
+   - Cualquier día hábil de ese rango sirve. Ofrécele los cupos libres que haya dentro del rango,
+     partiendo por los primeros, y déjalo elegir.
+   - Si contesta que le da lo mismo, que cualquiera está bien o algo equivalente: NO le vuelvas a
+     preguntar. Elige tú el primer cupo libre del rango, confírmaselo con día y hora exactos y cierra.
+
+   SI PIDE UN HORARIO QUE NO EXISTE (por ejemplo "después de las 15:00" o "por la tarde"):
+   - Solo atendemos 09:15 y 14:00. Explícaselo con amabilidad y ofrécele esos horarios dentro de
+     los días que él prefiera.
+   - Si insiste en un horario que no existe, deriva a la ejecutiva con la frase de SOLICITUD HUMANA:
+     ella puede abrir una hora excepcional, tú no.
+   - JAMÁS ofrezcas ni aceptes una hora que no esté en la lista de arriba, aunque el cliente la pida.
+
    - Si no logran coordinar una fecha, deriva al cliente a nuestra ejecutiva usando EXACTAMENTE
      la frase de la regla de SOLICITUD HUMANA.
 ${surveyMode ? `
@@ -645,7 +698,14 @@ ${surveyMode ? `
 
         // ¿El cliente eligió uno de los cupos que le ofrecimos? Se compara contra la
         // lista real de disponibles, así nunca queda agendada una fecha que no existe.
-        const elegido = detectarCupoElegido(message, disponibles);
+        //
+        // Si el cliente NO nombra la fecha —"cualquiera está bien", "el que sea"— es el
+        // bot el que elige, y entonces la fecha solo aparece en SU respuesta. Sin este
+        // segundo intento el bot decía "queda agendada para el lunes 24" y la cita no se
+        // guardaba en ninguna parte: el cliente quedaba convencido de tener hora y el
+        // técnico nunca se enteraba.
+        const elegido =
+          detectarCupoElegido(message, disponibles) || detectarCupoConfirmadoPorElBot(replyText, disponibles);
         if (elegido && session.leadData.appointment_iso !== elegido.id) {
           session.leadData.appointment_iso = elegido.id;
           session.leadData.appointment_time = elegido.label;

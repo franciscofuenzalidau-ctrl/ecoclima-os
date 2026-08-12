@@ -149,7 +149,13 @@ export function construirCupo(fecha: string, hora: string): Slot {
 export function cuposDelPeriodo(
   diasHaciaAdelante = 21,
   now: Date = new Date(),
-  config: AgendaConfig = CONFIG_VACIA
+  config: AgendaConfig = CONFIG_VACIA,
+  /**
+   * Los horarios extra que agrega Pilar son excepciones que ella coordina a mano.
+   * El calendario del panel y el agendado manual sí los usan; el bot NO (ver
+   * `cuposLibres`), para que nunca ofrezca una hora fuera de las dos oficiales.
+   */
+  incluirExtras = true
 ): Slot[] {
   const { date: hoy, time: horaActual } = ahoraEnChile(now);
   const limite = sumarDias(hoy, diasHaciaAdelante);
@@ -173,17 +179,23 @@ export function cuposDelPeriodo(
   }
 
   // Cupos extra que agregó Pilar (pueden caer en cualquier día y hora).
-  for (const extra of config.extras) {
-    const [fecha, hora] = extra.split('T');
-    if (fecha && hora) agregar(fecha, hora);
+  if (incluirExtras) {
+    for (const extra of config.extras) {
+      const [fecha, hora] = extra.split('T');
+      if (fecha && hora) agregar(fecha, hora);
+    }
   }
 
   return cupos.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /**
- * Cupos que el bot puede ofrecer: los del período, menos los que ya tienen cliente
- * y menos los que Pilar reservó a mano.
+ * Cupos que el bot puede ofrecer: SOLO los dos horarios oficiales (${SLOT_TIMES}) de
+ * días hábiles, menos los que ya tienen cliente y menos los que Pilar reservó a mano.
+ *
+ * Los horarios extra que agrega Pilar quedan FUERA a propósito: son excepciones que
+ * ella acuerda con el cliente y coordina desde el panel. Si entraran acá, el bot los
+ * ofrecería como si fueran horario normal de atención.
  */
 export function cuposLibres(
   ocupados: string[],
@@ -193,7 +205,11 @@ export function cuposLibres(
 ): Slot[] {
   const tomados = new Set(ocupados.filter(Boolean));
   for (const r of config.reservas) tomados.add(r.id);
-  return cuposDelPeriodo(diasHaciaAdelante, now, config).filter(c => !tomados.has(c.id));
+  return cuposDelPeriodo(diasHaciaAdelante, now, config, false)
+    .filter(c => !tomados.has(c.id))
+    // Cinturón de seguridad: aunque cambie cuposDelPeriodo, de aquí no sale una hora
+    // que no sea una de las oficiales.
+    .filter(c => (SLOT_TIMES as readonly string[]).includes(c.time));
 }
 
 /**
