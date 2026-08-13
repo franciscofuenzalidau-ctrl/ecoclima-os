@@ -221,8 +221,16 @@ export async function ejecutarCampanaPreventiva(
 // esta vez con los días concretos que hay libres para que solo tenga que elegir.
 // ---------------------------------------------------------------------------
 
-/** Horas desde el envío de la campaña antes de insistir. */
-const HORAS_PARA_SEGUIMIENTO = 24;
+/**
+ * Horas desde el envío de la campaña antes de insistir.
+ *
+ * Son 20 y no 24 a propósito. La campaña sale a las 09:00 y el seguimiento corre en la
+ * misma pasada diaria, también a las 09:00: con el umbral en 24 h exactas, la corrida
+ * del día siguiente podía caer unos segundos ANTES de cumplirse el plazo, no encontrar a
+ * nadie y marcar el día como hecho — el seguimiento se saltaba 24 horas completas.
+ * Con 20 h el "al día siguiente" se cumple siempre, sin depender del segundo exacto.
+ */
+const HORAS_PARA_SEGUIMIENTO = 20;
 
 /** Cuántas opciones concretas de día y hora se le ofrecen en el mensaje. */
 const OPCIONES_A_OFRECER = 3;
