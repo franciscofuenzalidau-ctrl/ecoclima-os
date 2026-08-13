@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 import axios from 'axios';
 import { db } from '../services/firebase';
 import { clearSession } from '../services/gemini';
-import { enviarWhatsApp, avisarTecnicoDeVisita } from '../services/notificaciones';
+import { enviarWhatsApp, avisarTecnicoDeVisita, TECNICO_POR_DEFECTO } from '../services/notificaciones';
 import {
   cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
   leerConfigAgenda, guardarConfigAgenda
@@ -346,17 +346,21 @@ router.get('/agenda', async (req: Request, res: Response) => {
       }
     }
 
-    const reservas = new Map(config.reservas.map(r => [r.id, r.motivo]));
+    const reservas = new Map(config.reservas.map(r => [r.id, r]));
     const extras = new Set(config.extras);
 
     const cupos = cuposDelPeriodo(dias, new Date(), config).map(cupo => {
       const lead = porCupo.get(cupo.id);
+      const reserva = reservas.get(cupo.id);
       return {
         ...cupo,
         ocupado: !!lead,
         esExtra: extras.has(cupo.id),
-        reservado: reservas.has(cupo.id),
-        motivoReserva: reservas.get(cupo.id) || null,
+        reservado: !!reserva,
+        motivoReserva: reserva?.motivo || null,
+        // Quién apartó el cupo y cuándo, para poder mostrarlo en el calendario.
+        reservaCreadaPor: reserva?.creadoPor || null,
+        reservaCreadaEl: reserva?.creadoEl || null,
         // Se envía la ficha completa del cliente: el calendario mostraba solo el nombre y
         // la dirección, así que las notas y el detalle del servicio quedaban invisibles y
         // había que ir a buscarlos a Gestión de Leads.
@@ -475,11 +479,97 @@ router.post('/agenda/reserva', async (req: Request, res: Response) => {
 
   const config = await leerConfigAgenda();
   config.reservas = config.reservas.filter(r => r.id !== slotId);
-  config.reservas.push({ id: slotId, motivo: String(motivo || '').slice(0, 120) });
+  config.reservas.push({
+    id: slotId,
+    // 400 en vez de 120: el motivo es donde se anota lo que toca en esa visita y se
+    // estaba cortando a mitad de frase.
+    motivo: String(motivo || '').slice(0, 400),
+    creadoPor: 'panel',
+    creadoEl: new Date().toISOString()
+  });
   await guardarConfigAgenda(config);
 
-  console.log(`[AGENDA] Cupo reservado por Pilar: ${slotId} (${motivo || 'sin motivo'})`);
+  console.log(`[AGENDA] Cupo reservado desde el panel: ${slotId} (${motivo || 'sin motivo'})`);
   return res.status(201).json({ success: true });
+});
+
+// POST /api/leads/agenda/reserva/:slotId/confirmar - Convierte una reserva en una cita
+// real de cliente. Pilar aparta el cupo con una nota ("2 MT VALDILUM") y, cuando confirma
+// con el cliente, lo pasa a agendado sin tener que soltar y volver a crear.
+// Body: { phone, client_name?, service_type?, address?, notes? }
+router.post('/agenda/reserva/:slotId/confirmar', async (req: Request, res: Response) => {
+  const slotId = req.params.slotId;
+  const { phone, client_name, service_type, address, notes } = req.body || {};
+
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(slotId)) {
+    return res.status(400).json({ error: 'Cupo inválido.' });
+  }
+
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  if (cleanPhone.length < 8) {
+    return res.status(400).json({ error: 'Necesito el teléfono del cliente para agendarlo.' });
+  }
+
+  const config = await leerConfigAgenda();
+  const reserva = config.reservas.find(r => r.id === slotId);
+  if (!reserva) {
+    return res.status(404).json({ error: 'Ese cupo no está reservado.' });
+  }
+
+  const leads = await cargarLeads();
+  const chocaCon = leads.find(
+    l => l.appointment_iso === slotId && l.status !== 'Cancelado' && l.phone !== cleanPhone
+  );
+  if (chocaCon) {
+    return res.status(409).json({ error: `Ese cupo ya lo tiene +${chocaCon.phone}.` });
+  }
+
+  const [fecha, hora] = slotId.split('T');
+  const cupo = construirCupo(fecha, hora);
+  const existente = leads.find(l => l.phone === cleanPhone);
+
+  // Lo anotado en la reserva se conserva como nota: es el detalle de lo que hay que hacer.
+  const notaReserva = reserva.motivo ? `[Reserva de agenda]: ${reserva.motivo}` : '';
+  const notasFinales = [existente?.notes, notaReserva, notes].filter(Boolean).join('\n');
+
+  const datos: Record<string, any> = {
+    phone: cleanPhone,
+    appointment_iso: cupo.id,
+    appointment_time: cupo.label,
+    status: 'Agendado',
+    booked_by: 'panel',
+    booked_at: new Date().toISOString(),
+    reminder_sent_at: null,
+    service_type: service_type || existente?.service_type || 'maintenance',
+    technician: existente?.technician || TECNICO_POR_DEFECTO,
+    notes: notasFinales || null,
+    ...(client_name ? { client_name } : {}),
+    ...(address ? { address } : {}),
+    ...(existente ? {} : { created_at: new Date().toISOString() })
+  };
+
+  try {
+    if (db) {
+      await db.collection('leads').doc(cleanPhone).set(datos, { merge: true });
+    }
+    updateLocalMock(cleanPhone, datos);
+
+    // El cupo deja de estar reservado: ahora es una cita de verdad.
+    config.reservas = config.reservas.filter(r => r.id !== slotId);
+    await guardarConfigAgenda(config);
+
+    // Al técnico le llega la ficha ahora, y el recordatorio le llegará 3 h antes.
+    const leadCompleto = { ...(existente || {}), ...datos };
+    avisarTecnicoDeVisita(leadCompleto, datos.technician).catch(err =>
+      console.error('Error avisando al técnico de la reserva confirmada:', err)
+    );
+
+    console.log(`[AGENDA] Reserva ${slotId} confirmada como cita de +${cleanPhone}.`);
+    return res.status(200).json({ success: true, appointment_time: cupo.label });
+  } catch (error: any) {
+    console.error('Error al confirmar la reserva:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
 });
 
 // DELETE /api/leads/agenda/reserva/:slotId - Soltar un cupo reservado.

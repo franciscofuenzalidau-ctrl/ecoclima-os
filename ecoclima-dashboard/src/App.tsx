@@ -101,6 +101,8 @@ interface AgendaSlot {
   esExtra: boolean;        // horario agregado a mano por Pilar
   reservado: boolean;      // apartado por Pilar, el bot no lo ofrece
   motivoReserva: string | null;
+  reservaCreadaPor?: 'panel' | 'bot' | null;
+  reservaCreadaEl?: string | null;
   lead: {
     phone: string;
     client_name?: string | null;
@@ -858,6 +860,10 @@ export default function App() {
   const [agendaAbierta, setAgendaAbierta] = useState<boolean>(true);
   // Cupo libre en el que Pilar está por poner un cliente registrado a mano.
   const [agendandoEn, setAgendandoEn] = useState<AgendaSlot | null>(null);
+  // Reserva que se está convirtiendo en cita de verdad.
+  const [confirmandoReserva, setConfirmandoReserva] = useState<AgendaSlot | null>(null);
+  const [reservaTelefono, setReservaTelefono] = useState<string>('');
+  const [reservaNombre, setReservaNombre] = useState<string>('');
   const [showAddClientModal, setShowAddClientModal] = useState<boolean>(false);
   const [newClientName, setNewClientName] = useState<string>('');
   const [newClientPhone, setNewClientPhone] = useState<string>('');
@@ -1390,6 +1396,34 @@ export default function App() {
       });
       if (res.ok) await fetchAgenda();
       else alert((await res.json().catch(() => ({}))).error || 'No se pudo reservar.');
+    } finally {
+      setGuardandoCita(false);
+    }
+  };
+
+  /**
+   * Pasa una reserva a cita agendada. Lo que Pilar anotó al reservar ("2 MT VALDILUM")
+   * se conserva como nota de la ficha, y el técnico recibe el aviso al instante.
+   */
+  const confirmarReserva = async (cupo: AgendaSlot, phone: string, clientName?: string) => {
+    setGuardandoCita(true);
+    try {
+      const res = await fetch(`${API_BASE}/agenda/reserva/${cupo.id}/confirmar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, client_name: clientName || undefined })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'No se pudo agendar.');
+        return;
+      }
+      setConfirmandoReserva(null);
+      setReservaTelefono('');
+      setReservaNombre('');
+      await Promise.all([fetchAgenda(), fetchLeads()]);
+    } catch (err) {
+      alert('Error de conexión al agendar la reserva.');
     } finally {
       setGuardandoCita(false);
     }
@@ -2257,6 +2291,28 @@ export default function App() {
                                     <span>{cupo.lead.technician || t('opt_unassigned', 'Sin asignar')}</span>
                                   </div>
 
+                                  {/* Quién puso esta hora: el agente por sí solo o una persona. */}
+                                  {cupo.lead.booked_by && (
+                                    <div
+                                      className={`autoria-cita ${cupo.lead.booked_by === 'bot' ? 'autoria-bot' : 'autoria-panel'}`}
+                                      title={cupo.lead.booked_at ? new Date(cupo.lead.booked_at).toLocaleString('es-CL') : undefined}
+                                    >
+                                      {cupo.lead.booked_by === 'bot'
+                                        ? `🤖 ${t('booked_by_bot_short', 'Lo agendó el bot')}`
+                                        : `👤 ${t('booked_by_panel_short', 'Agendado a mano')}`}
+                                    </div>
+                                  )}
+
+                                  {cupo.lead.notes && (
+                                    <div className="agenda-notas-mini" title={cupo.lead.notes}>
+                                      {cupo.lead.notes.replace(/\n/g, ' · ')}
+                                    </div>
+                                  )}
+
+                                  <div className="agenda-vermas">
+                                    {t('lbl_see_full', 'Toca para ver la ficha completa')}
+                                  </div>
+
                                   {/* stopPropagation: sin esto, mover o liberar abriría además el detalle. */}
                                   <div className="agenda-acciones" onClick={(e) => e.stopPropagation()}>
                                     <button
@@ -2286,16 +2342,42 @@ export default function App() {
                                       <Lock className="h-3 w-3" /> {cupo.time}
                                     </span>
                                   </div>
-                                  <div className="agenda-nota" title={cupo.motivoReserva || ''}>
+                                  <div className="agenda-nota-larga" title={cupo.motivoReserva || ''}>
                                     {cupo.motivoReserva || t('lbl_reserved', 'Reservado')}
                                   </div>
-                                  <button
-                                    onClick={() => soltarReserva(cupo)}
-                                    disabled={guardandoCita}
-                                    className="agenda-btn"
-                                  >
-                                    {t('lbl_release', 'Soltar')}
-                                  </button>
+
+                                  {cupo.reservaCreadaPor && (
+                                    <div
+                                      className={`autoria-cita ${cupo.reservaCreadaPor === 'bot' ? 'autoria-bot' : 'autoria-panel'}`}
+                                      title={cupo.reservaCreadaEl ? new Date(cupo.reservaCreadaEl).toLocaleString('es-CL') : undefined}
+                                    >
+                                      {cupo.reservaCreadaPor === 'bot'
+                                        ? `🤖 ${t('booked_by_bot_short', 'Lo agendó el bot')}`
+                                        : `👤 ${t('reserved_by_panel', 'Reservado a mano')}`}
+                                    </div>
+                                  )}
+
+                                  <div className="agenda-acciones">
+                                    <button
+                                      onClick={() => {
+                                        setConfirmandoReserva(cupo);
+                                        setReservaTelefono('');
+                                        setReservaNombre('');
+                                      }}
+                                      disabled={guardandoCita}
+                                      className="agenda-btn"
+                                      title={t('tip_confirm_reserve', 'Pasar esta reserva a cita agendada')}
+                                    >
+                                      {t('lbl_book_client', 'Agendar')}
+                                    </button>
+                                    <button
+                                      onClick={() => soltarReserva(cupo)}
+                                      disabled={guardandoCita}
+                                      className="agenda-btn suave"
+                                    >
+                                      {t('lbl_release', 'Soltar')}
+                                    </button>
+                                  </div>
                                 </div>
                               ) : (
                                 <div
@@ -3784,6 +3866,89 @@ export default function App() {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Pasar una reserva a cita agendada */}
+      {confirmandoReserva && (
+        <div className="modal-overlay" onClick={() => setConfirmandoReserva(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>
+                  <Calendar className="h-5 w-5" style={{ color: '#22d3ee' }} />
+                  {t('lbl_confirm_reserve', 'Agendar reserva')}: {confirmandoReserva.label}
+                </h3>
+                <p className="modal-sub">
+                  {confirmandoReserva.motivoReserva
+                    ? `${t('lbl_note', 'Nota')}: ${confirmandoReserva.motivoReserva}`
+                    : t('desc_confirm_reserve', 'Elige el cliente o escribe sus datos')}
+                </p>
+              </div>
+              <button className="modal-cerrar" onClick={() => setConfirmandoReserva(null)} aria-label="Cerrar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="reserva-nuevo">
+                <div className="reserva-nuevo-titulo">
+                  {t('lbl_new_client', 'Cliente nuevo o no registrado')}
+                </div>
+                <input
+                  className="tech-input-field"
+                  placeholder={t('ph_phone', 'Teléfono, ej: 56912345678')}
+                  value={reservaTelefono}
+                  onChange={(e) => setReservaTelefono(e.target.value)}
+                />
+                <input
+                  className="tech-input-field"
+                  placeholder={t('ph_name', 'Nombre del cliente (opcional)')}
+                  value={reservaNombre}
+                  onChange={(e) => setReservaNombre(e.target.value)}
+                />
+                <button
+                  className="agenda-btn"
+                  disabled={guardandoCita || reservaTelefono.replace(/\D/g, '').length < 8}
+                  onClick={() => confirmarReserva(confirmandoReserva, reservaTelefono, reservaNombre)}
+                >
+                  {t('lbl_book_client', 'Agendar')}
+                </button>
+              </div>
+
+              <div className="reserva-separador">
+                {t('lbl_or_registered', 'o elige un cliente ya registrado')}
+              </div>
+
+              {(() => {
+                const sinHora = leads.filter(l => !l.appointment_iso && l.status !== 'Cancelado');
+                if (sinHora.length === 0) {
+                  return (
+                    <div className="chat-vacio">
+                      {t('lbl_all_booked', 'Todos los clientes registrados ya tienen hora asignada.')}
+                    </div>
+                  );
+                }
+                return sinHora.map(l => (
+                  <button
+                    key={l.phone}
+                    className="cliente-opcion"
+                    disabled={guardandoCita}
+                    onClick={() => confirmarReserva(confirmandoReserva, l.phone, l.client_name || undefined)}
+                  >
+                    <div className="cliente-opcion-titulo">{l.client_name || `+${l.phone}`}</div>
+                    <div className="cliente-opcion-detalle">
+                      {l.client_name ? `+${l.phone} · ` : ''}
+                      {l.service_type === 'installation'
+                        ? t('chat_service_installation', 'Instalación')
+                        : t('chat_service_maintenance', 'Mantención')}
+                      {l.address ? ` · ${l.address}` : ''}
+                    </div>
+                  </button>
+                ));
+              })()}
+            </div>
           </div>
         </div>
       )}

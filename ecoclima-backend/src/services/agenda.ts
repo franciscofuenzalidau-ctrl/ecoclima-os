@@ -23,9 +23,18 @@ const TIMEZONE = 'America/Santiago';
  * - `extras`: cupos adicionales fuera de los dos horarios base (ej. un 16:00 puntual).
  * - `reservas`: cupos apartados con anticipación. El bot NO los ofrece.
  */
+export interface Reserva {
+  id: string;
+  motivo: string;
+  /** Quién apartó el cupo. Hoy siempre 'panel': las reservas se hacen a mano. */
+  creadoPor?: 'panel' | 'bot';
+  /** Cuándo se apartó, en ISO. */
+  creadoEl?: string;
+}
+
 export interface AgendaConfig {
   extras: string[];
-  reservas: Array<{ id: string; motivo: string }>;
+  reservas: Reserva[];
 }
 
 const CONFIG_VACIA: AgendaConfig = { extras: [], reservas: [] };
@@ -39,7 +48,14 @@ function normalizarConfig(raw: any): AgendaConfig {
     reservas: Array.isArray(raw?.reservas)
       ? raw.reservas
           .filter((r: any) => r && typeof r.id === 'string')
-          .map((r: any) => ({ id: r.id, motivo: typeof r.motivo === 'string' ? r.motivo : '' }))
+          .map((r: any) => ({
+            id: r.id,
+            motivo: typeof r.motivo === 'string' ? r.motivo : '',
+            // Las reservas creadas antes de guardar la autoría no traen estos campos;
+            // se asumen hechas desde el panel, que es la única vía que existía.
+            creadoPor: r.creadoPor === 'bot' ? 'bot' : 'panel',
+            creadoEl: typeof r.creadoEl === 'string' ? r.creadoEl : undefined
+          }))
       : []
   };
 }
