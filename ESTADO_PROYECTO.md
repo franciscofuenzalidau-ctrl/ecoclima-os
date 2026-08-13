@@ -214,6 +214,32 @@ el seguimiento 24 horas completas. Con 20 h el "al día siguiente" se cumple sie
 `cuposMencionadosEnOrden()` extrae del último mensaje del bot qué cupos ofreció y en qué orden: es lo
 que permite resolver el ordinal. Se lee del historial, así que sobrevive a un reinicio del servidor.
 
+## 3-nonies. Detalle de visita y recordatorio al técnico (13-08-2026)
+
+**Detalle en el calendario.** El cupo ocupado ahora se puede tocar y abre la ficha completa.
+La causa de que no se vieran las notas estaba en el backend, no en el panel: `GET /api/leads/agenda`
+devolvía solo 6 campos del lead (teléfono, nombre, servicio, estado, técnico y dirección), así que
+`notes` y el resto **nunca llegaban al navegador**. Ahora manda la ficha entera y el modal muestra
+contacto, tipo de cliente, dirección con enlace a Maps (usa el GPS si existe), técnico, equipos,
+capacidad, superficie, antigüedad, última mantención, aviso si reporta falla, las notas completas y
+el estado del recordatorio al técnico. Los botones Mover/Liberar llevan `stopPropagation` para no
+abrir el detalle al usarlos.
+
+**Recordatorio al técnico 3 horas antes** — `src/services/recordatorioVisitas.ts`:
+- Se dispara desde `/health` (el uptime check es el único reloj fiable en Cloud Run) pero solo
+  consulta la base cada 10 minutos.
+- Busca las citas de HOY que empiezan dentro de las próximas 3 h, sin `reminder_sent_at`, y le manda
+  al técnico asignado la ficha completa: cliente, teléfono, otro contacto, tipo, dirección con enlace
+  de navegación, equipos, capacidad, antigüedad, última mantención, aviso de falla y notas.
+- Si no hay dirección, el mensaje lo advierte en mayúsculas para que llame antes de salir.
+- Usa `preferirTexto: true`: el texto lleva la ficha completa y la plantilla `aviso_visita_tecnico`
+  solo cinco datos sueltos, así que se intenta primero el texto.
+- **`reminder_sent_at` se limpia al mover o liberar la cita** (`PUT /:phone/appointment`). Sin eso,
+  una cita reagendada nunca habría recibido recordatorio: el sistema creería que ya se lo mandó.
+
+Herramienta de prueba: `src/test-ficha-calendario.ts` crea una visita con la ficha completa para
+revisar el modal y la borra al presionar Enter.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
