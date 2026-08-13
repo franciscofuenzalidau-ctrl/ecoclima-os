@@ -250,3 +250,64 @@ export function detectarCupoElegido(texto: string, disponibles: Slot[]): Slot | 
 
   return null;
 }
+
+const ORDINALES: Record<string, number> = {
+  'primero': 1, 'primera': 1, 'primer': 1, 'uno': 1,
+  'segundo': 2, 'segunda': 2, 'dos': 2,
+  'tercero': 3, 'tercera': 3, 'tercer': 3, 'tres': 3,
+  'cuarto': 4, 'cuarta': 4, 'cuatro': 4,
+  'quinto': 5, 'quinta': 5, 'cinco': 5
+};
+
+/**
+ * El cliente elige por posición: "el primero", "la 2", "el número 3", "el último".
+ *
+ * `ofrecidos` son los cupos que el bot acaba de nombrar, EN EL ORDEN en que los nombró.
+ * Sin esto, un "el primero que me diste" dejaba la conversación dando vueltas justo en
+ * el momento de cerrar: el bot volvía a preguntar cuál horario quería.
+ */
+export function detectarCupoPorOrdinal(texto: string, ofrecidos: Slot[]): Slot | null {
+  if (!texto || ofrecidos.length === 0) return null;
+  const t = texto.toLowerCase();
+
+  // "el último" / "la última"
+  if (/\b[uú]ltim[oa]\b/.test(t)) return ofrecidos[ofrecidos.length - 1];
+
+  for (const [palabra, pos] of Object.entries(ORDINALES)) {
+    if (new RegExp(`\\b${palabra}\\b`).test(t)) {
+      return ofrecidos[pos - 1] || null;
+    }
+  }
+
+  // Dígito suelto ("el 2", "opción 3"). Se evita confundirlo con una hora o una fecha:
+  // si el texto trae ":" o nombre de mes, ya lo resolvió detectarCupoElegido.
+  if (!t.includes(':') && !MESES.some(m => t.includes(m))) {
+    const m = t.match(/\b([1-5])\b/);
+    if (m) return ofrecidos[Number(m[1]) - 1] || null;
+  }
+
+  return null;
+}
+
+/**
+ * Cupos que un texto menciona, en el orden en que aparecen.
+ * Se usa sobre la última respuesta del bot para saber qué le ofreció al cliente.
+ */
+export function cuposMencionadosEnOrden(texto: string, disponibles: Slot[]): Slot[] {
+  if (!texto) return [];
+  const t = texto.toLowerCase();
+
+  const conPosicion = disponibles
+    .map(cupo => {
+      const dia = Number(cupo.date.slice(8, 10));
+      const nombreMes = MESES[Number(cupo.date.slice(5, 7)) - 1];
+      // Se exige día + mes + hora para no capturar una fecha suelta de otra frase.
+      const patron = new RegExp(`\\b${dia}\\b[^\\n]{0,40}?${nombreMes}[^\\n]{0,40}?${cupo.time.replace(':', '[:.]')}`);
+      const idx = t.search(patron);
+      return idx >= 0 ? { cupo, idx } : null;
+    })
+    .filter((x): x is { cupo: Slot; idx: number } => x !== null)
+    .sort((a, b) => a.idx - b.idx);
+
+  return conPosicion.map(x => x.cupo);
+}

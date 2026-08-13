@@ -5,7 +5,10 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { aiLogger } from './aiLogger';
 import { db } from './firebase';
-import { ahoraEnChile, cuposLibres, detectarCupoElegido, etiquetaDeFecha, leerConfigAgenda, Slot } from './agenda';
+import {
+  ahoraEnChile, cuposLibres, detectarCupoElegido, detectarCupoPorOrdinal,
+  cuposMencionadosEnOrden, etiquetaDeFecha, leerConfigAgenda, Slot
+} from './agenda';
 import { avisarTecnicoDeVisita, TECNICO_POR_DEFECTO } from './notificaciones';
 
 dotenv.config();
@@ -505,6 +508,16 @@ CÓMO ACTUAR:
 - Si menciona por su cuenta una falla del equipo, agradécele el dato y sigue agendando:
   no abras un cuestionario por eso.
 - Si dice que NO le interesa, agradécele con amabilidad y despídete. No insistas.
+- Si dice que YA le hicieron la mantención hace poco: agradécele, pregúntale en qué mes se
+  la hicieron para dejarlo registrado, y ofrécele avisarle cuando le toque la próxima.
+- Si pregunta QUÉ INCLUYE la mantención, respóndele esto antes de seguir con la fecha:
+  "La mantención preventiva incluye limpieza de filtros y del serpentín, revisión de gas
+  refrigerante, chequeo eléctrico, limpieza del drenaje y prueba de funcionamiento en frío
+  y calor. Es lo que evita fallas y mantiene el consumo bajo."
+  Nunca ignores esa pregunta: si la esquivas, el cliente se va.
+- Si pregunta por el PRECIO: dile que nuestra ejecutiva se lo confirma al contactarlo, y en
+  el MISMO mensaje ofrécele igual las fechas. Nunca dejes la conversación sin una fecha sobre
+  la mesa.
 `
       : '';
 
@@ -608,8 +621,19 @@ ${calendarContext}
 
    - TIENES PROHIBIDO inventar fechas u horarios. Solo puedes ofrecer cupos de la lista de arriba,
      copiando el día y la hora EXACTAMENTE como aparecen ahí.
-   - Primero ofrécele los 3 cupos más cercanos, y agrega que si ninguno le acomoda tiene más días
-     disponibles y que te diga cuál prefiere.
+
+   CÓMO OFRECER LOS CUPOS — SIEMPRE ASÍ, ES LO QUE PERMITE CERRAR RÁPIDO:
+   - Ofrece 3 opciones, NUMERADAS del 1 al 3, UNA POR LÍNEA, con día, fecha y una sola hora
+     cada una. Escribe siempre día, número, mes y hora completos. Ejemplo del formato:
+       1) lunes 17 de agosto a las 09:15
+       2) lunes 17 de agosto a las 14:00
+       3) martes 18 de agosto a las 09:15
+   - JAMÁS pongas dos horas en la misma opción ("09:15 o 14:00"): si el cliente responde
+     "el primero" no se sabe cuál eligió y hay que preguntarle de nuevo, y ahí se pierde la venta.
+   - Cierra con: "Respóndeme con el número de la opción que prefieras."
+   - Si te contesta con un número o "el primero", esa es su elección: confírmala de inmediato.
+     No le preguntes otra vez la hora.
+   - Agrega en una línea corta que si ninguna le acomoda, tienes más días disponibles.
    - Si el cliente pide un día concreto, BUSCA ESE DÍA en la lista completa de arriba y ofrécele
      las horas libres que tenga. La lista abarca las próximas tres semanas, no solo los primeros días.
    - Solo si el día que pide NO aparece en la lista dile que no hay disponibilidad, y ofrécele el
@@ -704,8 +728,20 @@ ${surveyMode ? `
         // segundo intento el bot decía "queda agendada para el lunes 24" y la cita no se
         // guardaba en ninguna parte: el cliente quedaba convencido de tener hora y el
         // técnico nunca se enteraba.
+        // Qué cupos le ofreció el bot en su mensaje anterior, en ese mismo orden. Es lo
+        // que permite entender "el primero" o "el 2" sin volver a preguntar.
+        const parteAnterior = [...session.history]
+          .slice(0, -1)
+          .reverse()
+          .find(h => h.role === 'model')?.parts?.[0];
+        const ultimoMensajeDelBot =
+          parteAnterior && 'text' in parteAnterior ? parteAnterior.text : '';
+        const ofrecidosAntes = cuposMencionadosEnOrden(ultimoMensajeDelBot, disponibles);
+
         const elegido =
-          detectarCupoElegido(message, disponibles) || detectarCupoConfirmadoPorElBot(replyText, disponibles);
+          detectarCupoElegido(message, disponibles) ||
+          detectarCupoPorOrdinal(message, ofrecidosAntes) ||
+          detectarCupoConfirmadoPorElBot(replyText, disponibles);
         if (elegido && session.leadData.appointment_iso !== elegido.id) {
           session.leadData.appointment_iso = elegido.id;
           session.leadData.appointment_time = elegido.label;

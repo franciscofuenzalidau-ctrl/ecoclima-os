@@ -224,8 +224,8 @@ export async function ejecutarCampanaPreventiva(
 /** Horas desde el envío de la campaña antes de insistir. */
 const HORAS_PARA_SEGUIMIENTO = 24;
 
-/** Cuántos días distintos se le nombran en el mensaje. */
-const DIAS_A_OFRECER = 3;
+/** Cuántas opciones concretas de día y hora se le ofrecen en el mensaje. */
+const OPCIONES_A_OFRECER = 3;
 
 function respondioDespuesDe(lead: any, desde: Date): boolean {
   // Basta con que exista cualquier mensaje del cliente en la conversación guardada:
@@ -257,13 +257,26 @@ export function seleccionarParaSeguimiento(allLeads: any[], ahora: Date = new Da
     // Se insiste UNA sola vez.
     if (lead.followup_sent_at) continue;
 
-    // Si contestó, la conversación sigue su curso con el bot: no se le interrumpe.
-    if (respondioDespuesDe(lead, enviada)) continue;
+    let motivo: string;
+
+    if (respondioDespuesDe(lead, enviada)) {
+      // Contestó pero no llegó a agendar. Si la conversación sigue caliente se la deja
+      // correr; si lleva más de 24 h detenida, se enfrió y hay que retomarla.
+      //
+      // Este es el caso más valioso de todos: alguien que YA mostró interés y quedó a
+      // medio camino. Antes quedaba en tierra de nadie —no recibía seguimiento por haber
+      // respondido, y no avanzaba porque nadie lo retomaba— y la venta se perdía sola.
+      const ultimoMensaje = fechaValida(lead.last_message_at);
+      if (!ultimoMensaje || ultimoMensaje > limite) continue;
+      motivo = `Conversó pero no agendó; última actividad el ${ultimoMensaje.toLocaleDateString('es-CL')}`;
+    } else {
+      motivo = `Sin respuesta desde el ${enviada.toLocaleDateString('es-CL')}`;
+    }
 
     salida.push({
       phone: String(lead.phone),
       client_name: lead.client_name,
-      motivo: `Sin respuesta desde el ${enviada.toLocaleDateString('es-CL')}`,
+      motivo,
       ultimaAtencion: null
     });
   }
@@ -272,26 +285,22 @@ export function seleccionarParaSeguimiento(allLeads: any[], ahora: Date = new Da
 }
 
 function armarMensajeSeguimiento(lead: any, disponibles: Slot[]): string {
-  const porDia = new Map<string, string[]>();
-  for (const c of disponibles) {
-    if (!porDia.has(c.date)) porDia.set(c.date, []);
-    porDia.get(c.date)!.push(c.time);
-  }
-
-  const lineas = [...porDia.entries()]
-    .slice(0, DIAS_A_OFRECER)
-    .map(([fecha, horas]) => `• ${etiquetaDeFecha(fecha)}: ${horas.join(' o ')}`)
+  // Numeradas y con UNA hora por línea: si van dos horas juntas ("09:15 o 14:00") y el
+  // cliente responde "la primera", no se sabe cuál eligió y hay que preguntarle de nuevo.
+  const lineas = disponibles
+    .slice(0, OPCIONES_A_OFRECER)
+    .map((c, i) => `${i + 1}) ${c.label}`)
     .join('\n');
 
   const equipos = lead.equipment_count && lead.equipment_count > 1 ? 'tus equipos' : 'tu equipo';
 
   return (
     `¡Hola de nuevo! 👋 Soy el asistente de *Furtz Clima*.\n\n` +
-    `Te escribí ayer por la *mantención preventiva anual* de ${equipos}. ` +
+    `Te escribí por la *mantención preventiva anual* de ${equipos}. ` +
     `Para hacértelo más fácil, estos son los horarios que tenemos libres:\n\n` +
     `${lineas}\n\n` +
-    `¿Cuál te acomoda? Respóndeme con el día y la hora y te dejo la visita agendada al instante. 😊\n\n` +
-    `Si prefieres otro momento, dímelo y buscamos alternativas.`
+    `Respóndeme con el número de la opción que prefieras y te dejo la visita agendada al instante. 😊\n\n` +
+    `Si ninguno te acomoda, dime qué día te sirve y busco disponibilidad.`
   );
 }
 
