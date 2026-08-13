@@ -7,6 +7,7 @@ import aiControlRouter from './routes/aiControl';
 import financesRouter from './routes/finances';
 import { tal_vez_correr_campana_diaria } from './services/campanaPreventiva';
 import { tal_vez_avisar_visitas_proximas } from './services/recordatorioVisitas';
+import { exigirClaveParaEscribir, claveEstaActiva } from './services/clavePanel';
 
 dotenv.config();
 
@@ -43,12 +44,19 @@ app.get('/health', (req, res) => {
     timestamp: new Date(),
     startedAt: STARTED_AT,
     uptimeSeconds: Math.round(process.uptime()),
-    campanaAutomatica: process.env.CAMPANA_AUTOMATICA === 'true'
+    campanaAutomatica: process.env.CAMPANA_AUTOMATICA === 'true',
+    // El panel lo consulta para saber si debe pedir la clave antes de guardar.
+    claveRequerida: claveEstaActiva()
   });
 });
 
 // WhatsApp Webhook endpoint
 app.use('/webhook', whatsappRouter);
+
+// A partir de acá, todo lo que MODIFIQUE datos exige la clave del panel. Las lecturas
+// quedan libres para que el dashboard se pueda mirar sin credenciales.
+// Ojo: el webhook de WhatsApp se monta ANTES a propósito — Meta no puede mandar la clave.
+app.use('/api', exigirClaveParaEscribir);
 
 // Leads API endpoint
 app.use('/api/leads', leadsRouter);

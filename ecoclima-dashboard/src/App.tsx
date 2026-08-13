@@ -62,6 +62,60 @@ interface Lead {
   last_message_at?: string;
 }
 
+/**
+ * Clave del panel para GUARDAR cambios.
+ *
+ * Mirar el panel es libre —los jueces del concurso deben poder verlo— pero agendar,
+ * mover, reservar o borrar exige la clave que solo tienen Francisco y Pilar.
+ *
+ * Se intercepta `fetch` en un solo lugar en vez de tocar las 18 llamadas de escritura
+ * que hay repartidas por el panel: así ninguna queda sin proteger, ni las que se
+ * agreguen después. Las lecturas (GET) pasan intactas.
+ */
+const CLAVE_GUARDADA = 'ecoclima_clave_panel';
+const METODOS_DE_ESCRITURA = ['POST', 'PUT', 'PATCH', 'DELETE'];
+
+(() => {
+  const fetchOriginal = window.fetch.bind(window);
+
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const metodo = (init?.method || 'GET').toUpperCase();
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+
+    if (!url.includes('/api/') || !METODOS_DE_ESCRITURA.includes(metodo)) {
+      return fetchOriginal(input, init);
+    }
+
+    const enviarCon = (clave: string) => {
+      const headers = new Headers(init?.headers || {});
+      headers.set('x-clave-panel', clave);
+      return fetchOriginal(input, { ...init, headers });
+    };
+
+    let respuesta = await enviarCon(localStorage.getItem(CLAVE_GUARDADA) || '');
+
+    if (respuesta.status === 401) {
+      const ingresada = window.prompt(
+        'Para guardar cambios necesitas la clave del panel.\n\nSolo Francisco y Pilar la tienen.'
+      );
+      if (ingresada === null) return respuesta;
+
+      const limpia = ingresada.trim();
+      respuesta = await enviarCon(limpia);
+
+      if (respuesta.status === 401) {
+        localStorage.removeItem(CLAVE_GUARDADA);
+        alert('Clave incorrecta. El cambio no se guardó.');
+      } else {
+        // Solo se recuerda si funcionó: así una clave mal escrita no queda pegada.
+        localStorage.setItem(CLAVE_GUARDADA, limpia);
+      }
+    }
+
+    return respuesta;
+  };
+})();
+
 // Clave de traducción de cada estado. Antes esto era una cadena de ternarios que
 // terminaba en 'cancelled': cualquier estado no contemplado —como "Agendado"— se
 // mostraba al usuario como "Cancelado".
