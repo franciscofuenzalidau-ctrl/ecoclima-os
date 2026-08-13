@@ -1205,6 +1205,80 @@ input[type=number] {
 .tech-select-field option { background-color: #0b1220; color: #ffffff; }
 
 
+/* Ficha completa de una visita, al tocar un cupo del calendario. */
+.agenda-cupo.clickeable { cursor: pointer; }
+.agenda-cupo.clickeable:hover {
+  border-color: rgba(34, 211, 238, 0.5);
+  background-color: rgba(34, 211, 238, 0.07);
+}
+
+.ficha-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ficha-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ficha-item.ancho { grid-column: 1 / -1; }
+
+.ficha-etiqueta {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.ficha-valor {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
+.ficha-valor.enlace { color: #22d3ee; text-decoration: none; }
+.ficha-valor.enlace:hover { text-decoration: underline; }
+.ficha-valor.alerta { color: #fca5a5; }
+
+.ficha-notas {
+  background-color: rgba(2, 6, 23, 0.6);
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.ficha-notas-titulo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #22d3ee;
+  margin-bottom: 8px;
+}
+
+.ficha-notas pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .ficha-grid { grid-template-columns: 1fr; }
+}
+
+
 /* Quién cerró la hora: el agente por sí solo o una persona desde el panel.
    Es la evidencia de cuántas visitas trae la IA sin intervención humana. */
 .autoria-cita {

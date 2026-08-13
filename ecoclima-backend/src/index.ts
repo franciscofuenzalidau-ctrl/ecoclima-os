@@ -6,6 +6,7 @@ import leadsRouter from './routes/leads';
 import aiControlRouter from './routes/aiControl';
 import financesRouter from './routes/finances';
 import { tal_vez_correr_campana_diaria } from './services/campanaPreventiva';
+import { tal_vez_avisar_visitas_proximas } from './services/recordatorioVisitas';
 
 dotenv.config();
 
@@ -29,6 +30,12 @@ const STARTED_AT = new Date();
 app.get('/health', (req, res) => {
   tal_vez_correr_campana_diaria().catch(err =>
     console.error('[CAMPAÑA automática] Error no controlado:', err)
+  );
+
+  // Recordatorio al técnico unas horas antes de cada visita. Se revisa cada 10 minutos
+  // (la propia función se encarga de no consultar la base en cada golpe).
+  tal_vez_avisar_visitas_proximas().catch(err =>
+    console.error('[RECORDATORIO] Error no controlado:', err)
   );
 
   res.status(200).json({

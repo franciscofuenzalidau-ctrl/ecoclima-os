@@ -108,6 +108,21 @@ interface AgendaSlot {
     status: string;
     technician: string;
     address?: string | null;
+    notes?: string | null;
+    contact_phone?: string | null;
+    client_type?: 'empresa' | 'particular' | null;
+    equipment_count?: number | null;
+    calculated_btu?: string | null;
+    installation_age?: string | null;
+    last_maintenance_info?: string | null;
+    is_working_correctly?: boolean | null;
+    area_m2?: number | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    booked_by?: 'bot' | 'panel' | null;
+    booked_at?: string | null;
+    reminder_sent_at?: string | null;
+    created_at?: string | null;
   } | null;
 }
 
@@ -830,6 +845,9 @@ export default function App() {
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false);
   // Conversación que se está mirando en el modal de chat, y teléfono al que se le está enviando la encuesta.
   const [chatLead, setChatLead] = useState<Lead | null>(null);
+  // Cupo del calendario abierto en detalle. El calendario mostraba solo nombre y dirección:
+  // las notas y el resto de la ficha quedaban invisibles desde la agenda.
+  const [cupoDetalle, setCupoDetalle] = useState<AgendaSlot | null>(null);
   const [sendingSurveyTo, setSendingSurveyTo] = useState<string | null>(null);
   const [deletingPhone, setDeletingPhone] = useState<string | null>(null);
   // Agenda: cupos reales (lun-vie, 09:15 y 14:00) y la cita que Pilar está moviendo.
@@ -2193,7 +2211,12 @@ export default function App() {
 
                             {agenda.cupos.filter(c => c.date === fecha).map(cupo => (
                               cupo.ocupado && cupo.lead ? (
-                                <div key={cupo.id} className="agenda-cupo ocupado">
+                                <div
+                                  key={cupo.id}
+                                  className="agenda-cupo ocupado clickeable"
+                                  onClick={() => setCupoDetalle(cupo)}
+                                  title={t('tip_open_slot', 'Ver toda la información de esta visita')}
+                                >
                                   <div className="agenda-hora">
                                     <span>{cupo.time}</span>
                                     <span className={`agenda-estado estado-${(cupo.lead.status || 'Pendiente').toLowerCase()}`}>
@@ -2212,6 +2235,7 @@ export default function App() {
                                     href={`https://wa.me/${cupo.lead.phone}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
                                     title={t('tip_write_client', 'Escribirle por WhatsApp')}
                                   >
                                     +{cupo.lead.phone}
@@ -2233,7 +2257,8 @@ export default function App() {
                                     <span>{cupo.lead.technician || t('opt_unassigned', 'Sin asignar')}</span>
                                   </div>
 
-                                  <div className="agenda-acciones">
+                                  {/* stopPropagation: sin esto, mover o liberar abriría además el detalle. */}
+                                  <div className="agenda-acciones" onClick={(e) => e.stopPropagation()}>
                                     <button
                                       onClick={() => setMoviendo(cupo)}
                                       disabled={guardandoCita}
@@ -3625,7 +3650,7 @@ export default function App() {
 
               {/* Address */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider">{t('lbl_address', 'Dirección')}</label>
+                <label className="text-xs text-slate-400 font-semibold uppercase tracking-wider">{t('ficha_direccion', 'Dirección')}</label>
                 <input
                   type="text"
                   value={newClientAddress}
@@ -3825,6 +3850,150 @@ export default function App() {
       )}
 
       {/* Modal de conversación del cliente */}
+      {cupoDetalle && cupoDetalle.lead && (
+        <div className="modal-overlay" onClick={() => setCupoDetalle(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>
+                  <Calendar className="h-5 w-5" style={{ color: '#22d3ee' }} />
+                  {cupoDetalle.label}
+                </h3>
+                <p className="modal-sub">
+                  {cupoDetalle.lead.service_type === 'installation'
+                    ? t('chat_service_installation', 'Instalación')
+                    : t('chat_service_maintenance', 'Mantención')}
+                  {` · ${cupoDetalle.lead.status}`}
+                  {cupoDetalle.lead.booked_by
+                    ? cupoDetalle.lead.booked_by === 'bot'
+                      ? ` · 🤖 ${t('booked_by_bot', 'Agendado por el bot')}`
+                      : ` · 👤 ${t('booked_by_panel', 'Agendado desde el panel')}`
+                    : ''}
+                </p>
+              </div>
+              <button className="modal-cerrar" onClick={() => setCupoDetalle(null)} aria-label="Cerrar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="ficha-grid">
+                <div className="ficha-item">
+                  <span className="ficha-etiqueta">{t('ficha_cliente', 'Cliente')}</span>
+                  <span className="ficha-valor">{cupoDetalle.lead.client_name || t('lbl_no_name', 'Sin nombre registrado')}</span>
+                </div>
+
+                <div className="ficha-item">
+                  <span className="ficha-etiqueta">{t('ficha_telefono', 'Teléfono')}</span>
+                  <a className="ficha-valor enlace" href={`https://wa.me/${cupoDetalle.lead.phone}`} target="_blank" rel="noopener noreferrer">
+                    +{cupoDetalle.lead.phone}
+                  </a>
+                </div>
+
+                {cupoDetalle.lead.contact_phone && cupoDetalle.lead.contact_phone !== cupoDetalle.lead.phone && (
+                  <div className="ficha-item">
+                    <span className="ficha-etiqueta">{t('ficha_otro_contacto', 'Otro contacto')}</span>
+                    <span className="ficha-valor">+{cupoDetalle.lead.contact_phone}</span>
+                  </div>
+                )}
+
+                {cupoDetalle.lead.client_type && (
+                  <div className="ficha-item">
+                    <span className="ficha-etiqueta">{t('ficha_tipo', 'Tipo de cliente')}</span>
+                    <span className="ficha-valor">{cupoDetalle.lead.client_type}</span>
+                  </div>
+                )}
+
+                <div className="ficha-item ancho">
+                  <span className="ficha-etiqueta">{t('ficha_direccion', 'Dirección')}</span>
+                  {cupoDetalle.lead.address ? (
+                    <a
+                      className="ficha-valor enlace"
+                      href={
+                        cupoDetalle.lead.latitude && cupoDetalle.lead.longitude
+                          ? `https://www.google.com/maps/search/?api=1&query=${cupoDetalle.lead.latitude},${cupoDetalle.lead.longitude}`
+                          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cupoDetalle.lead.address)}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {cupoDetalle.lead.address}
+                    </a>
+                  ) : (
+                    <span className="ficha-valor alerta">⚠️ {t('lbl_no_address', 'Sin dirección')}</span>
+                  )}
+                </div>
+
+                <div className="ficha-item">
+                  <span className="ficha-etiqueta">{t('ficha_tecnico', 'Técnico')}</span>
+                  <span className="ficha-valor">{cupoDetalle.lead.technician || t('opt_unassigned', 'Sin asignar')}</span>
+                </div>
+
+                {cupoDetalle.lead.equipment_count && (
+                  <div className="ficha-item">
+                    <span className="ficha-etiqueta">{t('ficha_equipos', 'Equipos')}</span>
+                    <span className="ficha-valor">{cupoDetalle.lead.equipment_count}</span>
+                  </div>
+                )}
+
+                {cupoDetalle.lead.calculated_btu && (
+                  <div className="ficha-item">
+                    <span className="ficha-etiqueta">{t('ficha_capacidad', 'Capacidad')}</span>
+                    <span className="ficha-valor">{cupoDetalle.lead.calculated_btu}</span>
+                  </div>
+                )}
+
+                {cupoDetalle.lead.area_m2 && (
+                  <div className="ficha-item">
+                    <span className="ficha-etiqueta">{t('ficha_superficie', 'Superficie')}</span>
+                    <span className="ficha-valor">{cupoDetalle.lead.area_m2} m²</span>
+                  </div>
+                )}
+
+                {cupoDetalle.lead.installation_age && (
+                  <div className="ficha-item">
+                    <span className="ficha-etiqueta">{t('ficha_antiguedad', 'Antigüedad')}</span>
+                    <span className="ficha-valor">{cupoDetalle.lead.installation_age}</span>
+                  </div>
+                )}
+
+                {cupoDetalle.lead.last_maintenance_info && (
+                  <div className="ficha-item ancho">
+                    <span className="ficha-etiqueta">{t('ficha_ultima_mantencion', 'Última mantención')}</span>
+                    <span className="ficha-valor">{cupoDetalle.lead.last_maintenance_info}</span>
+                  </div>
+                )}
+
+                {cupoDetalle.lead.is_working_correctly === false && (
+                  <div className="ficha-item ancho">
+                    <span className="ficha-valor alerta">⚠️ {t('lbl_reports_fault', 'El cliente reporta una falla en el equipo')}</span>
+                  </div>
+                )}
+
+                <div className="ficha-item ancho">
+                  <span className="ficha-etiqueta">{t('ficha_aviso_tecnico', 'Aviso al técnico')}</span>
+                  <span className="ficha-valor">
+                    {cupoDetalle.lead.reminder_sent_at
+                      ? `✅ ${t('lbl_sent_on', 'Enviado el')} ${new Date(cupoDetalle.lead.reminder_sent_at).toLocaleString('es-CL')}`
+                      : t('lbl_will_send', 'Se enviará automáticamente 3 horas antes de la visita')}
+                  </span>
+                </div>
+              </div>
+
+              {cupoDetalle.lead.notes && (
+                <div className="ficha-notas">
+                  <div className="ficha-notas-titulo">
+                    <Sparkles className="h-4 w-4" />
+                    {t('ficha_notas', 'Notas y detalle del servicio')}
+                  </div>
+                  <pre>{cupoDetalle.lead.notes}</pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {chatLead && (
         <div className="modal-overlay" onClick={() => setChatLead(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()}>

@@ -357,6 +357,9 @@ router.get('/agenda', async (req: Request, res: Response) => {
         esExtra: extras.has(cupo.id),
         reservado: reservas.has(cupo.id),
         motivoReserva: reservas.get(cupo.id) || null,
+        // Se envía la ficha completa del cliente: el calendario mostraba solo el nombre y
+        // la dirección, así que las notas y el detalle del servicio quedaban invisibles y
+        // había que ir a buscarlos a Gestión de Leads.
         lead: lead
           ? {
               phone: lead.phone,
@@ -364,7 +367,22 @@ router.get('/agenda', async (req: Request, res: Response) => {
               service_type: lead.service_type || null,
               status: lead.status || 'Pendiente',
               technician: lead.technician || '',
-              address: lead.address || null
+              address: lead.address || null,
+              notes: lead.notes || null,
+              contact_phone: lead.contact_phone || null,
+              client_type: lead.client_type || null,
+              equipment_count: lead.equipment_count || null,
+              calculated_btu: lead.calculated_btu || null,
+              installation_age: lead.installation_age || null,
+              last_maintenance_info: lead.last_maintenance_info || null,
+              is_working_correctly: lead.is_working_correctly ?? null,
+              area_m2: lead.area_m2 || null,
+              latitude: lead.latitude || null,
+              longitude: lead.longitude || null,
+              booked_by: lead.booked_by || null,
+              booked_at: lead.booked_at || null,
+              reminder_sent_at: lead.reminder_sent_at || null,
+              created_at: lead.created_at || null
             }
           : null
       };
@@ -497,7 +515,10 @@ router.put('/:phone/appointment', async (req: Request, res: Response) => {
       appointment_time: null,
       booked_by: null,
       booked_at: null,
-      status: 'Pendiente'
+      status: 'Pendiente',
+      // Sin esta limpieza, si la cita se vuelve a agendar el técnico nunca recibiría
+      // el recordatorio: el sistema creería que ya se lo mandó.
+      reminder_sent_at: null
     };
   } else {
     if (typeof slotId !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(slotId)) {
@@ -539,7 +560,9 @@ router.put('/:phone/appointment', async (req: Request, res: Response) => {
       appointment_time: cupo.label,
       booked_by: 'panel',
       booked_at: new Date().toISOString(),
-      status: 'Agendado'
+      status: 'Agendado',
+      // La cita cambió de hora: el recordatorio del técnico se vuelve a habilitar.
+      reminder_sent_at: null
     };
   }
 
