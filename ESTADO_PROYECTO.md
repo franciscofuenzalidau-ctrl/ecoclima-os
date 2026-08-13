@@ -191,6 +191,29 @@ no manda WhatsApp):
   mencione un único cupo. Verificado con `src/test-renovacion.ts`, que ahora comprueba que la cita
   quede realmente en Firestore (`appointment_iso`, `status`, `booked_by`, `technician`).
 
+## 3-octies. Fugas de venta detectadas y cerradas (12-08-2026)
+
+Se probaron las respuestas típicas de un cliente real con `src/test-conversion.ts` (crea fichas de
+prueba, conversa y las borra; no manda WhatsApp). Aparecieron cuatro puntos donde se perdía la venta:
+
+| Fuga | Qué pasaba | Arreglo |
+|---|---|---|
+| **Ambigüedad al cerrar** | Ofrecía "lunes 17: 09:15 **o** 14:00". Al responder "el primero", el bot no sabía cuál y volvía a preguntar la hora. La cita NO se agendaba. | Opciones **numeradas, una hora por línea**. `detectarCupoPorOrdinal()` entiende "el primero", "el 2", "el último". Verificado: ahora cierra la cita. |
+| **Ignoraba "¿qué incluye?"** | Respondía ofreciendo fechas sin contestar la pregunta. Es la objeción más común. | Responde el detalle del servicio (texto confirmado por Francisco) y después ofrece la fecha. |
+| **"Ya me la hicieron"** | "Gracias por avisar" y ahí moría. | Pregunta en qué mes, para registrarlo y avisarle cuando toque la próxima. |
+| **Conversaciones enfriadas** | Quien respondía pero no agendaba quedaba en tierra de nadie: no recibía seguimiento (por haber respondido) y nadie lo retomaba. | El seguimiento ahora incluye a quien conversó y lleva +20 h sin actividad ni cita. Es el candidato **más valioso**: ya mostró interés. |
+
+Además, para el precio: si preguntan cuánto cuesta, responde que la ejecutiva lo confirma **y en el
+mismo mensaje ofrece las fechas**. Nunca deja la conversación sin una fecha sobre la mesa.
+
+**⚠️ Umbral del seguimiento: 20 h, no 24.** La campaña sale a las 09:00 y el seguimiento corre en la
+misma pasada diaria, también a las 09:00. Con 24 h exactas, la corrida del día siguiente podía caer
+unos segundos ANTES de cumplirse el plazo, no encontrar a nadie, marcar el día como hecho y saltarse
+el seguimiento 24 horas completas. Con 20 h el "al día siguiente" se cumple siempre.
+
+`cuposMencionadosEnOrden()` extrae del último mensaje del bot qué cupos ofreció y en qué orden: es lo
+que permite resolver el ordinal. Se lee del historial, así que sobrevive a un reinicio del servidor.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
