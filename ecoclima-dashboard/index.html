@@ -1,10 +1,17 @@
 <!doctype html>
-<html lang="en">
+<!--
+  lang="es": el panel está en español. Estaba declarado como "en" (valor por defecto de
+  la plantilla de Vite) y Chrome ofrecía traducirlo. Al traducirlo leía "14 ago" —agosto
+  abreviado— como el inglés "14 ago" y lo reescribía a "hace 14 años" en el calendario.
+  translate="no" evita además que lo traduzca aunque el usuario lo pida por error.
+-->
+<html lang="es" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ecoclima-dashboard</title>
+    <title>Furtz Clima OS · Panel</title>
   </head>
   <body>
     <div id="root"></div>

@@ -25,4 +25,17 @@ if (!admin.apps.length) {
 
 const db = admin.apps.length ? admin.firestore() : null;
 
+// Firestore rechaza cualquier valor `undefined` y hace fallar la escritura completa.
+// Bastaba con que un campo opcional viniera sin valor —por ejemplo la fecha de creación
+// de una reserva antigua— para que se cayera el guardado de toda la agenda. Con esto,
+// esos campos simplemente no se escriben en vez de tumbar la operación.
+if (db) {
+  try {
+    db.settings({ ignoreUndefinedProperties: true });
+  } catch (error) {
+    // settings() solo se puede llamar antes de la primera operación; si ya se usó, se ignora.
+    console.warn('[FIREBASE] No se pudo aplicar ignoreUndefinedProperties:', (error as Error).message);
+  }
+}
+
 export { admin, db };

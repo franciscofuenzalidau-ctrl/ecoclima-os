@@ -54,7 +54,10 @@ function normalizarConfig(raw: any): AgendaConfig {
             // Las reservas creadas antes de guardar la autoría no traen estos campos;
             // se asumen hechas desde el panel, que es la única vía que existía.
             creadoPor: r.creadoPor === 'bot' ? 'bot' : 'panel',
-            creadoEl: typeof r.creadoEl === 'string' ? r.creadoEl : undefined
+            // La propiedad se OMITE cuando no hay fecha, en vez de dejarla en undefined:
+            // Firestore rechaza undefined y hacía fallar el guardado de toda la agenda,
+            // dejando a Pilar sin poder crear ni soltar reservas.
+            ...(typeof r.creadoEl === 'string' ? { creadoEl: r.creadoEl } : {})
           }))
       : []
   };
