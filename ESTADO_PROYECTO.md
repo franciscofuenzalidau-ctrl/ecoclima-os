@@ -240,6 +240,55 @@ abrir el detalle al usarlos.
 Herramienta de prueba: `src/test-ficha-calendario.ts` crea una visita con la ficha completa para
 revisar el modal y la borra al presionar Enter.
 
+## 3-decies. Reservas, seguridad y correcciones (13-08-2026)
+
+**Descubrimiento clave: Pilar no agenda clientes, usa RESERVAS.** El calendario tiene dos cosas
+distintas: las *citas* (ligadas a una ficha de cliente) y las *reservas* (un cupo apartado con una
+nota libre: "2 MT VALDILUM", "POR CONFIRMAR 2 MT FRANCISCO AGUILAR"). Pilar trabaja con reservas.
+Por eso la etiqueta de autoría, que se había puesto en las citas, no aparecía por ninguna parte.
+
+- **Las reservas ahora guardan autoría** (`creadoPor`, `creadoEl`) y se muestra 👤/🤖 en la tarjeta.
+- **El motivo pasó de 120 a 400 caracteres** y se muestra completo, no cortado en una línea.
+- **Botón "Agendar" en la reserva** → `POST /api/leads/agenda/reserva/:slotId/confirmar`. Convierte
+  la reserva en cita real: crea o actualiza la ficha, conserva lo anotado como nota, marca
+  `booked_by: 'panel'`, asigna técnico y le avisa. El formulario permite registrar al cliente completo
+  (teléfono, nombre, dirección, tipo de servicio y notas) sin salir del calendario.
+
+**⚠️ Bug grave introducido y corregido el mismo día.** Al agregar la autoría, las reservas antiguas
+quedaban con `creadoEl: undefined`. **Firestore rechaza `undefined` y aborta la escritura completa**,
+así que *toda* modificación de la agenda fallaba con 503: crear y soltar reservas, agregar y quitar
+horarios. Se corrigió omitiendo la propiedad cuando no hay valor, y además se activó
+`ignoreUndefinedProperties` en `firebase.ts` para que esta familia de errores no vuelva a tumbar una
+operación entera.
+
+**Fechas del calendario decían "vie, hace 14 años".** No era un error de cálculo: `index.html`
+declaraba `lang="en"` (venía así de la plantilla de Vite), Chrome creía que la página estaba en inglés
+y la traducía, leyendo "14 ago" —agosto— como el inglés *ago* ("hace"). Se corrigió a `lang="es"` con
+`translate="no"` y la meta `notranslate`.
+
+**Aviso al técnico**: no incluía el NOMBRE del cliente, solo el teléfono. Además, el enlace de mapa
+solo aparecía si el cliente había mandado ubicación GPS; ahora se arma también con la dirección
+escrita, que es el caso habitual.
+
+**Encuesta post-servicio: no dejaba rastro.** Se enviaba y el resultado solo quedaba en el log del
+servidor, así que desde el panel era imposible saber si llegó, si Meta la rechazó o si el cliente no
+contestó. Ahora la ficha guarda `survey_sent_at`, `survey_via` y `survey_error`, y esos campos se
+exponen en la API de la agenda.
+
+**Clave para modificar el panel** — `src/services/clavePanel.ts`:
+- Solo se exige en métodos de escritura (POST/PUT/PATCH/DELETE) bajo `/api`. Las lecturas siguen
+  libres: los jueces del concurso deben poder ver el panel.
+- Viaja en la cabecera `x-clave-panel`; se configura con la variable `CLAVE_PANEL` en Cloud Run.
+  **Si la variable no está definida, no bloquea nada** — una variable mal escrita nunca deja a Pilar
+  sin poder trabajar. `/health` informa su estado en `claveRequerida`.
+- En el panel se intercepta `fetch` en un único punto en vez de tocar las 18 llamadas de escritura,
+  así ninguna queda sin proteger. La clave se guarda en el navegador solo si funcionó.
+- El webhook de WhatsApp se monta ANTES del middleware: Meta no puede mandar la clave.
+
+⚠️ **Al probar en producción se envió un WhatsApp real al técnico** por una ficha de prueba. Para
+probar avisos usar `src/test-aviso-tecnico.ts`, que borra las credenciales antes de importar el
+servicio y fuerza el modo simulación.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
