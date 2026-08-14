@@ -1217,6 +1217,39 @@ input[type=number] {
   white-space: pre-wrap;
 }
 
+/* Editor de la ficha desde el calendario: completar dirección, teléfono o notas
+   sin tener que salir a Gestión de Leads. */
+.ficha-editar {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.ficha-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ficha-campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ficha-campo > span {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.ficha-campo textarea {
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
 /* Formulario para pasar una reserva a cita. */
 .reserva-nuevo {
   display: flex;

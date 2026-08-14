@@ -904,6 +904,10 @@ export default function App() {
   // Cupo del calendario abierto en detalle. El calendario mostraba solo nombre y dirección:
   // las notas y el resto de la ficha quedaban invisibles desde la agenda.
   const [cupoDetalle, setCupoDetalle] = useState<AgendaSlot | null>(null);
+  // Edición de la ficha desde el propio calendario, para completar lo que falte
+  // (dirección, teléfono de contacto, notas) sin tener que ir a Gestión de Leads.
+  const [editandoFicha, setEditandoFicha] = useState<boolean>(false);
+  const [fichaEdit, setFichaEdit] = useState<Record<string, string>>({});
   const [sendingSurveyTo, setSendingSurveyTo] = useState<string | null>(null);
   const [deletingPhone, setDeletingPhone] = useState<string | null>(null);
   // Agenda: cupos reales (lun-vie, 09:15 y 14:00) y la cita que Pilar está moviendo.
@@ -1494,6 +1498,64 @@ export default function App() {
       await Promise.all([fetchAgenda(), fetchLeads()]);
     } catch (err) {
       alert('Error de conexión al agendar la reserva.');
+    } finally {
+      setGuardandoCita(false);
+    }
+  };
+
+  /** Abre el modo edición del detalle con los valores que ya tiene la ficha. */
+  const abrirEdicionFicha = (lead: NonNullable<AgendaSlot['lead']>) => {
+    setFichaEdit({
+      client_name: lead.client_name || '',
+      address: lead.address || '',
+      contact_phone: lead.contact_phone || '',
+      equipment_count: lead.equipment_count ? String(lead.equipment_count) : '',
+      installation_age: lead.installation_age || '',
+      notes: lead.notes || ''
+    });
+    setEditandoFicha(true);
+  };
+
+  /** Guarda los datos que se completaron desde el calendario. */
+  const guardarFicha = async (phone: string) => {
+    setGuardandoCita(true);
+    try {
+      const cambios: Record<string, any> = {
+        client_name: fichaEdit.client_name?.trim() || null,
+        address: fichaEdit.address?.trim() || null,
+        contact_phone: fichaEdit.contact_phone?.replace(/\D/g, '') || null,
+        installation_age: fichaEdit.installation_age?.trim() || null,
+        notes: fichaEdit.notes?.trim() || null
+      };
+      const equipos = parseInt(fichaEdit.equipment_count || '', 10);
+      cambios.equipment_count = Number.isFinite(equipos) && equipos > 0 ? equipos : null;
+
+      const res = await fetch(`${API_BASE}/${phone}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cambios)
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'No se pudieron guardar los cambios.');
+        return;
+      }
+
+      setEditandoFicha(false);
+      const [nuevaAgenda] = await Promise.all([
+        fetch(`${API_BASE}/agenda?dias=42`).then(r => (r.ok ? r.json() : null)),
+        fetchLeads()
+      ]);
+
+      if (nuevaAgenda) {
+        setAgenda(nuevaAgenda);
+        // El modal sigue abierto: se refresca con la ficha recién guardada para que
+        // Pilar vea el cambio aplicado sin tener que cerrarlo y volver a entrar.
+        const actualizado = (nuevaAgenda.cupos as AgendaSlot[]).find(c => c.id === cupoDetalle?.id);
+        if (actualizado) setCupoDetalle(actualizado);
+      }
+    } catch {
+      alert('Error de conexión al guardar los cambios.');
     } finally {
       setGuardandoCita(false);
     }
@@ -4113,7 +4175,7 @@ export default function App() {
 
       {/* Modal de conversación del cliente */}
       {cupoDetalle && cupoDetalle.lead && (
-        <div className="modal-overlay" onClick={() => setCupoDetalle(null)}>
+        <div className="modal-overlay" onClick={() => { setCupoDetalle(null); setEditandoFicha(false); }}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
@@ -4133,12 +4195,105 @@ export default function App() {
                     : ''}
                 </p>
               </div>
-              <button className="modal-cerrar" onClick={() => setCupoDetalle(null)} aria-label="Cerrar">
+              <button className="modal-cerrar" onClick={() => { setCupoDetalle(null); setEditandoFicha(false); }} aria-label="Cerrar">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="modal-body">
+              {editandoFicha ? (
+                <div className="ficha-editor">
+                  <div className="reserva-nuevo-titulo">
+                    {t('lbl_complete_data', 'Completar datos de la visita')}
+                  </div>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_cliente', 'Cliente')}</span>
+                    <input
+                      className="tech-input-field"
+                      value={fichaEdit.client_name || ''}
+                      placeholder={t('ph_name', 'Nombre completo')}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, client_name: e.target.value }))}
+                    />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_direccion', 'Dirección')}</span>
+                    <input
+                      className="tech-input-field"
+                      value={fichaEdit.address || ''}
+                      placeholder={t('ph_address', 'Calle, número, sector')}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, address: e.target.value }))}
+                    />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_otro_contacto', 'Otro contacto')}</span>
+                    <input
+                      className="tech-input-field"
+                      value={fichaEdit.contact_phone || ''}
+                      placeholder={t('ph_other_phone', 'Otro teléfono, ej: 56912345678')}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, contact_phone: e.target.value }))}
+                    />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_equipos', 'Equipos')}</span>
+                    <input
+                      className="tech-input-field"
+                      value={fichaEdit.equipment_count || ''}
+                      placeholder={t('ph_equipment', 'Cantidad, ej: 2')}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, equipment_count: e.target.value }))}
+                    />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_antiguedad', 'Antigüedad')}</span>
+                    <input
+                      className="tech-input-field"
+                      value={fichaEdit.installation_age || ''}
+                      placeholder={t('ph_age', 'Ej: 3 años')}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, installation_age: e.target.value }))}
+                    />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_notas', 'Notas')}</span>
+                    <textarea
+                      className="tech-input-field"
+                      rows={4}
+                      value={fichaEdit.notes || ''}
+                      placeholder={t('ph_notes_client', 'Observaciones, indicaciones para el técnico...')}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, notes: e.target.value }))}
+                    />
+                  </label>
+
+                  <div className="agenda-acciones">
+                    <button
+                      className="agenda-btn"
+                      disabled={guardandoCita}
+                      onClick={() => guardarFicha(cupoDetalle.lead!.phone)}
+                    >
+                      {guardandoCita ? t('lbl_saving', 'Guardando...') : t('lbl_save', 'Guardar')}
+                    </button>
+                    <button
+                      className="agenda-btn suave"
+                      disabled={guardandoCita}
+                      onClick={() => setEditandoFicha(false)}
+                    >
+                      {t('lbl_cancel', 'Cancelar')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+              <>
+              <button
+                className="agenda-btn ficha-editar"
+                onClick={() => abrirEdicionFicha(cupoDetalle.lead!)}
+              >
+                ✏️ {t('lbl_edit_data', 'Editar o completar datos')}
+              </button>
+
               <div className="ficha-grid">
                 <div className="ficha-item">
                   <span className="ficha-etiqueta">{t('ficha_cliente', 'Cliente')}</span>
@@ -4250,6 +4405,8 @@ export default function App() {
                   </div>
                   <pre>{cupoDetalle.lead.notes}</pre>
                 </div>
+              )}
+              </>
               )}
             </div>
           </div>
