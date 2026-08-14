@@ -386,7 +386,13 @@ router.get('/agenda', async (req: Request, res: Response) => {
               booked_by: lead.booked_by || null,
               booked_at: lead.booked_at || null,
               reminder_sent_at: lead.reminder_sent_at || null,
-              created_at: lead.created_at || null
+              created_at: lead.created_at || null,
+              // Estado de la encuesta post-servicio, para poder auditar desde el panel
+              // si llegó, si Meta la rechazó y si el cliente ya respondió.
+              survey_sent_at: lead.survey_sent_at || null,
+              survey_error: lead.survey_error || null,
+              satisfaction_rating: lead.satisfaction_rating || null,
+              satisfaction_comment: lead.satisfaction_comment || null
             }
           : null
       };
@@ -983,10 +989,23 @@ async function sendSatisfactionSurvey(clientPhone: string) {
     plantilla: { nombre: 'post_servicio_pago_encuesta' }
   });
 
+  // Queda anotado en la ficha si salió o no. Antes esto solo se escribía en el registro
+  // del servidor, así que desde el panel era imposible saber si a un cliente le llegó
+  // la encuesta, si Meta la rechazó, o si simplemente no contestó.
+  const ahoraISO = new Date().toISOString();
+  const marca: Record<string, any> = r.enviado
+    ? { survey_sent_at: ahoraISO, survey_via: r.via, survey_error: null }
+    : { survey_attempted_at: ahoraISO, survey_error: (r.motivo || 'desconocido').slice(0, 300) };
+
+  if (db) {
+    await db.collection('leads').doc(clientPhone).update(marca).catch(() => {});
+  }
+  updateLocalMock(clientPhone, marca);
+
   if (r.enviado) {
-    console.log(`[WHATSAPP] Mensaje post-servicio enviado a +${clientPhone} vía ${r.via}`);
+    console.log(`[ENCUESTA] Mensaje post-servicio enviado a +${clientPhone} vía ${r.via}`);
   } else {
-    console.error(`[WHATSAPP] No se pudo enviar el post-servicio a +${clientPhone}: ${r.motivo}`);
+    console.error(`[ENCUESTA] No se pudo enviar el post-servicio a +${clientPhone}: ${r.motivo}`);
   }
 
   return { sent: r.enviado, reason: r.motivo, via: r.via };

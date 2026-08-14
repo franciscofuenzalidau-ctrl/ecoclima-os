@@ -918,6 +918,9 @@ export default function App() {
   const [confirmandoReserva, setConfirmandoReserva] = useState<AgendaSlot | null>(null);
   const [reservaTelefono, setReservaTelefono] = useState<string>('');
   const [reservaNombre, setReservaNombre] = useState<string>('');
+  const [reservaDireccion, setReservaDireccion] = useState<string>('');
+  const [reservaNotas, setReservaNotas] = useState<string>('');
+  const [reservaServicio, setReservaServicio] = useState<'maintenance' | 'installation'>('maintenance');
   const [showAddClientModal, setShowAddClientModal] = useState<boolean>(false);
   const [newClientName, setNewClientName] = useState<string>('');
   const [newClientPhone, setNewClientPhone] = useState<string>('');
@@ -1459,13 +1462,23 @@ export default function App() {
    * Pasa una reserva a cita agendada. Lo que Pilar anotó al reservar ("2 MT VALDILUM")
    * se conserva como nota de la ficha, y el técnico recibe el aviso al instante.
    */
-  const confirmarReserva = async (cupo: AgendaSlot, phone: string, clientName?: string) => {
+  const confirmarReserva = async (
+    cupo: AgendaSlot,
+    phone: string,
+    datos: { client_name?: string; address?: string; notes?: string; service_type?: string } = {}
+  ) => {
     setGuardandoCita(true);
     try {
       const res = await fetch(`${API_BASE}/agenda/reserva/${cupo.id}/confirmar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, client_name: clientName || undefined })
+        body: JSON.stringify({
+          phone,
+          client_name: datos.client_name || undefined,
+          address: datos.address || undefined,
+          notes: datos.notes || undefined,
+          service_type: datos.service_type || undefined
+        })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1475,6 +1488,9 @@ export default function App() {
       setConfirmandoReserva(null);
       setReservaTelefono('');
       setReservaNombre('');
+      setReservaDireccion('');
+      setReservaNotas('');
+      setReservaServicio('maintenance');
       await Promise.all([fetchAgenda(), fetchLeads()]);
     } catch (err) {
       alert('Error de conexión al agendar la reserva.');
@@ -3948,26 +3964,51 @@ export default function App() {
             <div className="modal-body">
               <div className="reserva-nuevo">
                 <div className="reserva-nuevo-titulo">
-                  {t('lbl_new_client', 'Cliente nuevo o no registrado')}
+                  {t('lbl_new_client', 'Cliente nuevo — queda registrado en el sistema')}
                 </div>
                 <input
                   className="tech-input-field"
-                  placeholder={t('ph_phone', 'Teléfono, ej: 56912345678')}
+                  placeholder={t('ph_phone', 'Teléfono con código país, ej: 56912345678')}
                   value={reservaTelefono}
                   onChange={(e) => setReservaTelefono(e.target.value)}
                 />
                 <input
                   className="tech-input-field"
-                  placeholder={t('ph_name', 'Nombre del cliente (opcional)')}
+                  placeholder={t('ph_name', 'Nombre completo')}
                   value={reservaNombre}
                   onChange={(e) => setReservaNombre(e.target.value)}
+                />
+                <input
+                  className="tech-input-field"
+                  placeholder={t('ph_address', 'Dirección: calle, número, sector')}
+                  value={reservaDireccion}
+                  onChange={(e) => setReservaDireccion(e.target.value)}
+                />
+                <select
+                  value={reservaServicio}
+                  onChange={(e) => setReservaServicio(e.target.value as 'maintenance' | 'installation')}
+                >
+                  <option value="maintenance">{t('chat_service_maintenance', 'Mantención')}</option>
+                  <option value="installation">{t('chat_service_installation', 'Instalación')}</option>
+                </select>
+                <textarea
+                  className="tech-input-field"
+                  rows={3}
+                  placeholder={t('ph_notes_client', 'Notas: equipos, observaciones, indicaciones para el técnico...')}
+                  value={reservaNotas}
+                  onChange={(e) => setReservaNotas(e.target.value)}
                 />
                 <button
                   className="agenda-btn"
                   disabled={guardandoCita || reservaTelefono.replace(/\D/g, '').length < 8}
-                  onClick={() => confirmarReserva(confirmandoReserva, reservaTelefono, reservaNombre)}
+                  onClick={() => confirmarReserva(confirmandoReserva, reservaTelefono, {
+                    client_name: reservaNombre,
+                    address: reservaDireccion,
+                    notes: reservaNotas,
+                    service_type: reservaServicio
+                  })}
                 >
-                  {t('lbl_book_client', 'Agendar')}
+                  {t('lbl_save_and_book', 'Guardar cliente y agendar')}
                 </button>
               </div>
 
@@ -3989,7 +4030,9 @@ export default function App() {
                     key={l.phone}
                     className="cliente-opcion"
                     disabled={guardandoCita}
-                    onClick={() => confirmarReserva(confirmandoReserva, l.phone, l.client_name || undefined)}
+                    onClick={() => confirmarReserva(confirmandoReserva, l.phone, {
+                      client_name: l.client_name || undefined
+                    })}
                   >
                     <div className="cliente-opcion-titulo">{l.client_name || `+${l.phone}`}</div>
                     <div className="cliente-opcion-detalle">
