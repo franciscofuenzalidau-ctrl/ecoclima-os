@@ -136,20 +136,29 @@ export async function avisarTecnicoDeVisita(
   const servicio = lead.service_type === 'installation' ? 'Instalación' : 'Mantención';
   const direccion = lead.address || 'no registrada';
   const cita = lead.appointment_time || 'Por definir';
+  const nombreCliente = lead.client_name || 'Sin nombre registrado';
 
+  // Enlace de navegación: con GPS es exacto; si no, se arma con la dirección escrita.
+  // Antes solo se ponía cuando había GPS, así que la mayoría de las visitas llegaba
+  // sin forma de navegar hasta allá.
   const enlaceMapa = lead.latitude && lead.longitude
     ? `https://www.google.com/maps/search/?api=1&query=${lead.latitude},${lead.longitude}`
-    : null;
+    : lead.address
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lead.address)}`
+      : null;
   const sinUbicacion = !lead.address && !enlaceMapa;
 
   const texto =
     (esActualizacion
       ? `Hola ${nombreTecnico}, se actualizó la información de una visita que ya tenías asignada. Ahora sí está la dirección:\n\n`
       : `Hola ${nombreTecnico}, se te ha asignado una nueva visita técnica en Furtz Clima OS:\n\n`) +
-    `📞 Cliente: +${lead.phone}\n` +
+    // El nombre iba faltando: al técnico le llegaba solo un número de teléfono y no
+    // sabía a quién iba a visitar.
+    `👤 Cliente: ${nombreCliente}\n` +
+    `📞 Teléfono: +${lead.phone}\n` +
     `🔧 Servicio: ${servicio}\n` +
     `📍 Dirección: ${direccion}\n` +
-    (enlaceMapa ? `🗺️ Ubicación GPS: ${enlaceMapa}\n` : '') +
+    (enlaceMapa ? `🗺️ Cómo llegar: ${enlaceMapa}\n` : '') +
     `📅 Fecha Cita: ${cita}\n` +
     `📐 Capacidad/Detalle: ${lead.calculated_btu || lead.installation_age || 'N/A'}\n` +
     `📝 Notas: ${lead.notes || 'Sin notas adicionales'}\n\n` +
@@ -161,7 +170,15 @@ export async function avisarTecnicoDeVisita(
     texto,
     plantilla: {
       nombre: 'aviso_visita_tecnico',
-      variables: [nombreTecnico, `+${lead.phone}`, servicio, direccion, cita]
+      // La plantilla solo tiene cinco huecos, así que el nombre y el teléfono van juntos
+      // en el mismo: sirve de poco recibir un número sin saber de quién es.
+      variables: [
+        nombreTecnico,
+        lead.client_name ? `${lead.client_name} (+${lead.phone})` : `+${lead.phone}`,
+        servicio,
+        direccion,
+        cita
+      ]
     }
   });
 
