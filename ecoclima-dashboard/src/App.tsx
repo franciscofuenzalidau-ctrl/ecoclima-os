@@ -1509,6 +1509,7 @@ export default function App() {
       client_name: lead.client_name || '',
       address: lead.address || '',
       contact_phone: lead.contact_phone || '',
+      service_type: lead.service_type || 'maintenance',
       equipment_count: lead.equipment_count ? String(lead.equipment_count) : '',
       installation_age: lead.installation_age || '',
       notes: lead.notes || ''
@@ -1524,6 +1525,7 @@ export default function App() {
         client_name: fichaEdit.client_name?.trim() || null,
         address: fichaEdit.address?.trim() || null,
         contact_phone: fichaEdit.contact_phone?.replace(/\D/g, '') || null,
+        service_type: fichaEdit.service_type === 'installation' ? 'installation' : 'maintenance',
         installation_age: fichaEdit.installation_age?.trim() || null,
         notes: fichaEdit.notes?.trim() || null
       };
@@ -4093,7 +4095,10 @@ export default function App() {
                     className="cliente-opcion"
                     disabled={guardandoCita}
                     onClick={() => confirmarReserva(confirmandoReserva, l.phone, {
-                      client_name: l.client_name || undefined
+                      client_name: l.client_name || undefined,
+                      // Sin esto el backend caía a "mantención" por defecto y una
+                      // instalación quedaba mal clasificada.
+                      service_type: l.service_type || reservaServicio
                     })}
                   >
                     <div className="cliente-opcion-titulo">{l.client_name || `+${l.phone}`}</div>
@@ -4215,6 +4220,17 @@ export default function App() {
                       placeholder={t('ph_name', 'Nombre completo')}
                       onChange={(e) => setFichaEdit(f => ({ ...f, client_name: e.target.value }))}
                     />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_servicio', 'Tipo de servicio')}</span>
+                    <select
+                      value={fichaEdit.service_type || 'maintenance'}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, service_type: e.target.value }))}
+                    >
+                      <option value="maintenance">{t('chat_service_maintenance', 'Mantención')}</option>
+                      <option value="installation">{t('chat_service_installation', 'Instalación')}</option>
+                    </select>
                   </label>
 
                   <label className="ficha-campo">
