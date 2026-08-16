@@ -289,6 +289,26 @@ exponen en la API de la agenda.
 probar avisos usar `src/test-aviso-tecnico.ts`, que borra las credenciales antes de importar el
 servicio y fuerza el modo simulación.
 
+## 3-undecies. Edición desde el calendario y clave activa (14-08-2026)
+
+- **Editor de ficha en el calendario.** Al tocar una cita, botón "✏️ Editar o completar datos":
+  teléfono, tipo de servicio, dirección, otro contacto, equipos, antigüedad y notas. Antes había que
+  salir a Gestión de Leads. Al guardar, el modal se refresca con los datos nuevos sin cerrarse.
+- **Tipo de servicio corregido.** Al confirmar una reserva eligiendo un cliente ya registrado, el
+  panel no enviaba `service_type` y el backend caía a `'maintenance'` por defecto: una instalación
+  quedaba registrada como mantención. Ahora se envía el del cliente, y además el tipo es editable
+  desde la ficha para corregir los que quedaron mal.
+- **Cambio de teléfono** — `PUT /api/leads/:phone/telefono`. El teléfono es el ID del documento en
+  Firestore, así que no se puede editar: hay que trasladar la ficha completa. El endpoint copia todo
+  (conversación, cita, notas, historial) al ID nuevo y recién entonces borra el viejo — si algo falla
+  en medio queda duplicada, nunca perdida. Rechaza si el número destino ya tiene ficha, y valida el
+  largo (11 dígitos en Chile). El panel avisa en amarillo cuando el número no tiene ese largo.
+  *Caso que lo motivó: Juan Alcázar quedó registrado con `569987265831`, 12 dígitos; con ese número
+  WhatsApp no puede entregarle nada.*
+- ✅ **CLAVE_PANEL configurada en Cloud Run (14-08-2026).** Verificado en producción: leer sin clave
+  responde 200, escribir sin clave o con clave incorrecta responde 401. El bot de WhatsApp no se ve
+  afectado porque el webhook se monta antes del middleware.
+
 ## 4. ESTADO DE PENDIENTES
 
 > Actualizado el 03-08-2026. Lo que aparecía aquí como pendiente ya está resuelto en su mayoría;
