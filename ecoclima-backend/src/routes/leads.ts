@@ -678,6 +678,69 @@ router.put('/:phone/appointment', async (req: Request, res: Response) => {
 // DELETE /api/leads/:phone - Eliminar una ficha completa.
 // Pensado para limpiar los chats de prueba hechos con números propios, que de otra
 // forma aparecen ante los jueces como si fueran clientes reales.
+// PUT /api/leads/:phone/telefono - Corrige el número de un cliente.
+// Body: { nuevoTelefono }
+//
+// El teléfono es el ID del documento en Firestore, así que no se puede "editar": hay que
+// trasladar la ficha completa a un ID nuevo y borrar la vieja. Se hace acá y no a mano
+// para que no se pierdan la conversación, la cita ni el historial en el camino.
+router.put('/:phone/telefono', async (req: Request, res: Response) => {
+  const actual = (req.params.phone || '').replace(/\D/g, '');
+  const nuevo = String(req.body?.nuevoTelefono || '').replace(/\D/g, '');
+
+  if (!actual || !nuevo) {
+    return res.status(400).json({ error: 'Faltan el teléfono actual o el nuevo.' });
+  }
+  if (actual === nuevo) {
+    return res.status(400).json({ error: 'El número nuevo es igual al actual.' });
+  }
+  // 56 + 9 dígitos para Chile; se aceptan 8 a 15 por si alguna vez hay otro país.
+  if (nuevo.length < 8 || nuevo.length > 15) {
+    return res.status(400).json({
+      error: `"${nuevo}" no parece un número válido (tiene ${nuevo.length} dígitos). En Chile son 11: 56 + 9 dígitos.`
+    });
+  }
+
+  if (!db) {
+    return res.status(500).json({ error: 'Sin conexión a la base de datos.' });
+  }
+
+  try {
+    const refVieja = db.collection('leads').doc(actual);
+    const docViejo = await refVieja.get();
+    if (!docViejo.exists) {
+      return res.status(404).json({ error: 'No existe una ficha con ese número.' });
+    }
+
+    const refNueva = db.collection('leads').doc(nuevo);
+    const docNuevo = await refNueva.get();
+    if (docNuevo.exists) {
+      return res.status(409).json({
+        error: `Ya existe una ficha con el número +${nuevo}. Revísala antes de mover esta.`
+      });
+    }
+
+    const datos = { ...docViejo.data(), phone: nuevo };
+
+    // Primero se crea la nueva y solo después se borra la vieja: si algo falla en medio,
+    // se queda con la ficha duplicada en vez de perderla.
+    await refNueva.set(datos);
+    await refVieja.delete();
+
+    updateLocalMock(nuevo, datos);
+
+    // El bot tenía la conversación en memoria bajo el número viejo.
+    clearSession(actual);
+    clearSession(nuevo);
+
+    console.log(`[TELÉFONO] Ficha trasladada de +${actual} a +${nuevo}.`);
+    return res.status(200).json({ success: true, phone: nuevo });
+  } catch (error: any) {
+    console.error('Error al cambiar el teléfono:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.delete('/:phone', async (req: Request, res: Response) => {
   const cleanPhone = (req.params.phone || '').replace(/\D/g, '');
 

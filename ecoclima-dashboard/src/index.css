@@ -1244,6 +1244,15 @@ input[type=number] {
   color: #64748b;
 }
 
+.ficha-aviso {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #fbbf24;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .ficha-campo textarea {
   resize: vertical;
   font-family: inherit;

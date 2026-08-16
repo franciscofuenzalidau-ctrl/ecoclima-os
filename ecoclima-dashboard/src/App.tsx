@@ -1506,6 +1506,9 @@ export default function App() {
   /** Abre el modo edición del detalle con los valores que ya tiene la ficha. */
   const abrirEdicionFicha = (lead: NonNullable<AgendaSlot['lead']>) => {
     setFichaEdit({
+      // El teléfono es el identificador de la ficha: cambiarlo traslada todo el registro,
+      // por eso va aparte y no junto al resto de los campos.
+      phone: lead.phone,
       client_name: lead.client_name || '',
       address: lead.address || '',
       contact_phone: lead.contact_phone || '',
@@ -1521,6 +1524,23 @@ export default function App() {
   const guardarFicha = async (phone: string) => {
     setGuardandoCita(true);
     try {
+      // Si cambió el teléfono va primero, porque traslada la ficha a otro identificador
+      // y el resto de los cambios hay que guardarlos ya en el número nuevo.
+      const nuevoTel = (fichaEdit.phone || '').replace(/\D/g, '');
+      if (nuevoTel && nuevoTel !== phone) {
+        const resTel = await fetch(`${API_BASE}/${phone}/telefono`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nuevoTelefono: nuevoTel })
+        });
+        if (!resTel.ok) {
+          const d = await resTel.json().catch(() => ({}));
+          alert(d.error || 'No se pudo cambiar el teléfono.');
+          return;
+        }
+        phone = nuevoTel;
+      }
+
       const cambios: Record<string, any> = {
         client_name: fichaEdit.client_name?.trim() || null,
         address: fichaEdit.address?.trim() || null,
@@ -4220,6 +4240,21 @@ export default function App() {
                       placeholder={t('ph_name', 'Nombre completo')}
                       onChange={(e) => setFichaEdit(f => ({ ...f, client_name: e.target.value }))}
                     />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_telefono', 'Teléfono')} — {t('lbl_whatsapp_number', 'el número de WhatsApp del cliente')}</span>
+                    <input
+                      className="tech-input-field"
+                      value={fichaEdit.phone || ''}
+                      placeholder="56912345678"
+                      onChange={(e) => setFichaEdit(f => ({ ...f, phone: e.target.value }))}
+                    />
+                    {(fichaEdit.phone || '').replace(/\D/g, '').length !== 11 && (
+                      <span className="ficha-aviso">
+                        ⚠️ {t('lbl_phone_hint', 'En Chile son 11 dígitos: 56 + 9 dígitos. Con otro largo, WhatsApp no puede entregar mensajes.')}
+                      </span>
+                    )}
                   </label>
 
                   <label className="ficha-campo">
