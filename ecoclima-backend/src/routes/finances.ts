@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { db } from '../services/firebase';
+import { etiquetaDeMes, precioMantencion, precioInstalacion, parametrosFinancieros } from '../services/tarifas';
 
 /**
  * Métricas financieras del panel (módulo Finanzas y Auditoría).
@@ -69,9 +70,83 @@ async function writeFinancials(data: any[]): Promise<boolean> {
   return false;
 }
 
+/**
+ * Ingresos del mes, sumados desde los servicios realmente cerrados.
+ *
+ * Antes esta cifra se escribía a mano y podía no tener relación con el trabajo hecho. Ahora sale
+ * de las fichas: cada servicio marcado como completado guarda su monto, y aquí se agrupan por mes.
+ *
+ * Van a la línea de clientes preexistentes porque hoy todos los clientes del sistema vienen de la
+ * base instalada de Furtz. Si más adelante el agente capta clientes nuevos, habrá que distinguirlos
+ * con una marca de origen en la ficha: el sistema todavía no sabe hacer esa diferencia solo.
+ */
+async function ingresosPorMes(): Promise<Record<string, number>> {
+  const porMes: Record<string, number> = {};
+  if (!db) return porMes;
+
+  try {
+    const snap = await db.collection('leads').get();
+    snap.forEach(doc => {
+      const l = doc.data() as any;
+      const usd = Number(l.service_amount_usd);
+      if (!Number.isFinite(usd) || usd <= 0) return;
+
+      const fecha = l.completed_at || l.installation_date || l.last_maintenance_date;
+      if (!fecha) return;
+      const mes = etiquetaDeMes(String(fecha));
+      if (!mes) return;
+
+      porMes[mes] = Math.round(((porMes[mes] || 0) + usd) * 100) / 100;
+    });
+  } catch (error) {
+    console.error('Error al sumar ingresos desde las fichas:', error);
+  }
+  return porMes;
+}
+
+/** Une los costos guardados a mano con los ingresos calculados desde las fichas. */
+async function finanzasCompletas(): Promise<any[]> {
+  const guardado = await readFinancials();
+  const ingresos = await ingresosPorMes();
+
+  const meses = new Map<string, any>();
+  guardado.forEach(m => meses.set(String(m.month), { ...m }));
+
+  for (const [mes, usd] of Object.entries(ingresos)) {
+    const fila = meses.get(mes) || {
+      month: mes,
+      client_revenue: 0,
+      operating_costs: 0,
+      marketing_spend: 0,
+      cost_description: ''
+    };
+    fila.related_revenue = usd;
+    meses.set(mes, fila);
+  }
+
+  // Un mes con costos cargados pero sin servicios cerrados debe mostrar ingreso 0, no el valor viejo.
+  for (const [mes, fila] of meses) {
+    if (!(mes in ingresos)) fila.related_revenue = 0;
+  }
+
+  return [...meses.values()];
+}
+
+// GET /api/finances/tarifas - Precios vigentes, para que el panel muestre el monto calculado
+// sin tener que repetir la regla de precios en el código del dashboard.
+router.get('/tarifas', (req: Request, res: Response) => {
+  const { iva, clpPorUsd } = parametrosFinancieros();
+  res.status(200).json({
+    mantencion_chica: precioMantencion('chico'),
+    mantencion_grande: precioMantencion('grande'),
+    instalacion_promedio: precioInstalacion(),
+    iva_porcentaje: iva,
+    clp_por_usd: clpPorUsd
+  });
+});
 // GET /api/finances
 router.get('/', async (req: Request, res: Response) => {
-  res.status(200).json(await readFinancials());
+  res.status(200).json(await finanzasCompletas());
 });
 
 // PUT /api/finances
@@ -91,7 +166,7 @@ router.put('/', async (req: Request, res: Response) => {
 // POST /api/finances/export-audit - CSV con el formato que pide Devpost
 router.post('/export-audit', async (req: Request, res: Response) => {
   try {
-    const data = await readFinancials();
+    const data = await finanzasCompletas();
 
     const headers = [
       'Period',

@@ -6,6 +6,7 @@ import axios from 'axios';
 import { db } from '../services/firebase';
 import { clearSession } from '../services/gemini';
 import { enviarWhatsApp, TECNICO_POR_DEFECTO } from '../services/notificaciones';
+import { calcularMontoBrutoCLP, brutoCLPaNetoUSD } from '../services/tarifas';
 import {
   cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
   leerConfigAgenda, guardarConfigAgenda
@@ -280,6 +281,31 @@ router.put('/:phone', async (req: Request, res: Response) => {
       await leadRef.update({ [dateField]: completionDate });
       updateLocalMock(phone, { [dateField]: completionDate });
 
+      // Cuánto se cobró. El técnico indica al cerrar cuántas unidades atendió y, en mantención,
+      // si el equipo es chico o grande; de ahí sale el monto. Si mandó un monto corregido a mano
+      // se respeta ese, porque el trabajo real puede haberse cobrado distinto al precio de lista.
+      const datosServicio = {
+        service_type: serviceType,
+        service_units: updateData.service_units ?? doc.data()?.service_units,
+        equipment_size: updateData.equipment_size ?? doc.data()?.equipment_size
+      };
+      const montoManual = Number(updateData.service_amount_clp);
+      const montoCLP = Number.isFinite(montoManual) && montoManual > 0
+        ? Math.round(montoManual)
+        : calcularMontoBrutoCLP(datosServicio);
+
+      if (montoCLP !== null) {
+        const cobro = {
+          service_amount_clp: montoCLP,
+          service_amount_usd: brutoCLPaNetoUSD(montoCLP),
+          completed_at: completionDate
+        };
+        await leadRef.update(cobro);
+        updateLocalMock(phone, cobro);
+        console.log(`[FINANZAS] +${phone}: ${montoCLP} CLP brutos = USD ${cobro.service_amount_usd} netos`);
+      } else {
+        console.warn(`[FINANZAS] +${phone} cerrado sin cantidad de unidades: no se pudo calcular el monto.`);
+      }
       sendSatisfactionSurvey(phone).catch(err => {
         console.error('Error enviando encuesta de satisfacción:', err);
       });
@@ -396,7 +422,15 @@ router.get('/agenda', async (req: Request, res: Response) => {
     const idsDelPeriodo = new Set(cupos.map(c => c.id));
     const fueraDeAgenda = [...porCupo.entries()]
       .filter(([id]) => !idsDelPeriodo.has(id))
-      .map(([id, lead]) => ({ id, phone: lead.phone, status: lead.status || 'Pendiente' }));
+      // Con el nombre del cliente, no solo el teléfono: así se puede buscar la ficha en el
+      // buscador del panel. Ordenadas por fecha, que es como se leen.
+      .map(([id, lead]) => ({
+        id,
+        phone: lead.phone,
+        client_name: lead.client_name || null,
+        status: lead.status || 'Pendiente'
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id));
 
     return res.status(200).json({
       hoy: ahoraEnChile().date,

@@ -207,7 +207,7 @@ interface AgendaResponse {
   hoy: string;
   horarios: string[];
   cupos: AgendaSlot[];
-  fueraDeAgenda: Array<{ id: string; phone: string; status: string }>;
+  fueraDeAgenda: Array<{ id: string; phone: string; client_name?: string | null; status: string }>;
 }
 
 /**
@@ -925,6 +925,18 @@ export default function App() {
   // Cupo del calendario abierto en detalle. El calendario mostraba solo nombre y dirección:
   // las notas y el resto de la ficha quedaban invisibles desde la agenda.
   const [cupoDetalle, setCupoDetalle] = useState<AgendaSlot | null>(null);
+  /**
+   * Cierre de servicio. Al marcar "Instalado" ya no basta con cambiar el estado: el técnico
+   * indica cuántas unidades atendió y, en mantención, si el equipo es chico o grande. De ahí
+   * sale el ingreso que después suma Finanzas, en vez de escribirlo a mano.
+   */
+  const [cierreServicio, setCierreServicio] = useState<{
+    lead: Lead; unidades: string; tamano: 'chico' | 'grande'; monto: string; montoEditado: boolean;
+  } | null>(null);
+  const [tarifas, setTarifas] = useState<{
+    mantencion_chica: number; mantencion_grande: number; instalacion_promedio: number;
+    iva_porcentaje: number; clp_por_usd: number;
+  } | null>(null);
   // Edición de la ficha desde el propio calendario, para completar lo que falte
   // (dirección, teléfono de contacto, notas) sin tener que ir a Gestión de Leads.
   const [editandoFicha, setEditandoFicha] = useState<boolean>(false);
@@ -1386,6 +1398,13 @@ export default function App() {
   const handleStatusChange = async (phone: string, newStatus: string) => {
     // "Enviar encuesta" no es un estado, es una acción dentro del mismo desplegable:
     // manda el mensaje por el bot y deja al cliente inscrito en el recordatorio anual.
+    // Marcar "Instalado" abre el cierre de servicio en vez de guardar directo: ahí se registra
+    // cuánto se atendió y cuánto se cobró, que es lo que alimenta Finanzas.
+    if (newStatus === 'Instalado') {
+      const lead = leads.find(l => l.phone === phone);
+      if (lead) { await abrirCierreServicio(lead); return; }
+    }
+
     if (newStatus === '__send_survey') {
       await handleSendSurvey(phone);
       return;
@@ -1405,6 +1424,71 @@ export default function App() {
       }
     } catch (error) {
       console.error('Error updating status:', error);
+    }
+  };
+
+  /** Precio de lista según lo que indique el técnico. Sirve solo para proponer el monto. */
+  const montoDeLista = (lead: Lead | null, unidades: string, tamano: string): number => {
+    const u = parseInt(unidades || '', 10);
+    if (!tarifas || !lead || !Number.isFinite(u) || u <= 0) return 0;
+    if (lead.service_type === 'installation') return u * tarifas.instalacion_promedio;
+    return u * (tamano === 'grande' ? tarifas.mantencion_grande : tarifas.mantencion_chica);
+  };
+
+  /** Lo que de verdad se declara como ingreso: sin IVA y en dólares. */
+  const montoNetoUSD = (brutoCLP: number): number => {
+    if (!tarifas || !brutoCLP) return 0;
+    return Math.round((brutoCLP / (1 + tarifas.iva_porcentaje / 100) / tarifas.clp_por_usd) * 100) / 100;
+  };
+
+  /** Abre el formulario de cierre, cargando las tarifas la primera vez. */
+  const abrirCierreServicio = async (lead: Lead) => {
+    if (!tarifas) {
+      try {
+        const r = await fetch(`${BACKEND_URL}/api/finances/tarifas`);
+        if (r.ok) setTarifas(await r.json());
+      } catch { /* si falla, el monto queda para escribirlo a mano */ }
+    }
+    setCierreServicio({ lead, unidades: '1', tamano: 'chico', monto: '', montoEditado: false });
+  };
+
+  /** Confirma el cierre: guarda estado, cantidad, tamaño y monto en una sola llamada. */
+  const confirmarCierreServicio = async () => {
+    if (!cierreServicio) return;
+    const { lead, unidades, tamano, monto, montoEditado } = cierreServicio;
+    const u = parseInt(unidades || '', 10);
+    if (!Number.isFinite(u) || u <= 0) {
+      alert('Indica cuántas unidades se atendieron.');
+      return;
+    }
+    const brutoCLP = montoEditado
+      ? Math.round(Number(String(monto).replace(/\D/g, '')))
+      : montoDeLista(lead, unidades, tamano);
+
+    setGuardandoCita(true);
+    try {
+      const res = await fetch(`${API_BASE}/${lead.phone}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'Instalado',
+          service_units: u,
+          equipment_size: lead.service_type === 'installation' ? null : tamano,
+          service_amount_clp: brutoCLP > 0 ? brutoCLP : undefined
+        })
+      });
+      if (!res.ok) {
+        alert('No se pudo cerrar el servicio.');
+        return;
+      }
+      setLeads(prev => prev.map(l => l.phone === lead.phone ? { ...l, status: 'Instalado' as any } : l));
+      setCierreServicio(null);
+      fetchRouteOptimization();
+      await fetchLeads();
+    } catch {
+      alert('Error de conexión al cerrar el servicio.');
+    } finally {
+      setGuardandoCita(false);
     }
   };
 
@@ -2656,7 +2740,7 @@ export default function App() {
               {agendaAbierta && agenda && agenda.fueraDeAgenda.length > 0 && (
                 <div className="text-[11px] text-amber-300/90 bg-amber-500/8 border border-amber-500/20 rounded-lg p-2.5">
                   ⚠️ {agenda.fueraDeAgenda.length} {t('warn_out_of_range', 'cita(s) fuera del rango mostrado')}:{' '}
-                  {agenda.fueraDeAgenda.map(c => `+${c.phone} (${c.id.replace('T', ' ')})`).join(' · ')}
+                  {agenda.fueraDeAgenda.map(c => `${c.client_name || '+' + c.phone} — ${c.id.replace('T', ' ')}`).join(' · ')}
                 </div>
               )}
             </div>
@@ -4260,6 +4344,101 @@ export default function App() {
       )}
 
       {/* Modal de conversación del cliente */}
+
+      {cierreServicio && (
+        <div className="modal-overlay" onClick={() => setCierreServicio(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>✅ Cerrar servicio</h3>
+                <p className="modal-sub">
+                  {cierreServicio.lead.client_name || `+${cierreServicio.lead.phone}`}
+                  {` · ${cierreServicio.lead.service_type === 'installation' ? 'Instalación' : 'Mantención'}`}
+                </p>
+              </div>
+              <button className="modal-cerrar" onClick={() => setCierreServicio(null)} aria-label="Cerrar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="ficha-editor">
+                <label className="ficha-campo">
+                  <span>
+                    {cierreServicio.lead.service_type === 'installation'
+                      ? '¿Cuántas instalaciones se hicieron?'
+                      : '¿Cuántas mantenciones se hicieron?'}
+                  </span>
+                  <input
+                    className="tech-input-field"
+                    type="number"
+                    min="1"
+                    value={cierreServicio.unidades}
+                    onChange={(e) => setCierreServicio(c => c && ({ ...c, unidades: e.target.value }))}
+                  />
+                </label>
+
+                {cierreServicio.lead.service_type !== 'installation' && (
+                  <label className="ficha-campo">
+                    <span>Tamaño del equipo</span>
+                    <select
+                      value={cierreServicio.tamano}
+                      onChange={(e) => setCierreServicio(c => c && ({ ...c, tamano: e.target.value as 'chico' | 'grande' }))}
+                    >
+                      <option value="chico">
+                        Chico{tarifas ? ` — $${tarifas.mantencion_chica.toLocaleString('es-CL')} c/u` : ''}
+                      </option>
+                      <option value="grande">
+                        Grande{tarifas ? ` — $${tarifas.mantencion_grande.toLocaleString('es-CL')} c/u` : ''}
+                      </option>
+                    </select>
+                  </label>
+                )}
+
+                <label className="ficha-campo">
+                  <span>Total cobrado, con IVA (pesos)</span>
+                  <input
+                    className="tech-input-field"
+                    value={
+                      cierreServicio.montoEditado
+                        ? cierreServicio.monto
+                        : montoDeLista(cierreServicio.lead, cierreServicio.unidades, cierreServicio.tamano).toLocaleString('es-CL')
+                    }
+                    onChange={(e) => setCierreServicio(c => c && ({ ...c, monto: e.target.value, montoEditado: true }))}
+                  />
+                  <span className="ficha-aviso">
+                    💡 Sale del precio de lista. Corrígelo si el trabajo se cobró distinto
+                    {cierreServicio.lead.service_type === 'installation'
+                      ? ' — en instalaciones el precio es un rango, así que esto es un promedio.'
+                      : '.'}
+                  </span>
+                </label>
+
+                <div className="ficha-campo">
+                  <span>Se declara como ingreso</span>
+                  <div className="ficha-valor">
+                    USD {montoNetoUSD(
+                      cierreServicio.montoEditado
+                        ? Number(String(cierreServicio.monto).replace(/\D/g, ''))
+                        : montoDeLista(cierreServicio.lead, cierreServicio.unidades, cierreServicio.tamano)
+                    ).toFixed(2)}
+                    {tarifas ? ` — neto de IVA ${tarifas.iva_porcentaje}%, a ${tarifas.clp_por_usd} CLP/USD` : ''}
+                  </div>
+                </div>
+
+                <div className="agenda-acciones">
+                  <button className="agenda-btn" disabled={guardandoCita} onClick={confirmarCierreServicio}>
+                    {guardandoCita ? 'Guardando...' : 'Confirmar cierre'}
+                  </button>
+                  <button className="agenda-btn suave" disabled={guardandoCita} onClick={() => setCierreServicio(null)}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {cupoDetalle && cupoDetalle.lead && (
         <div className="modal-overlay" onClick={() => { setCupoDetalle(null); setEditandoFicha(false); }}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
