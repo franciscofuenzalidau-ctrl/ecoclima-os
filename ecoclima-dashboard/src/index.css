@@ -1,5 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
 
+/* Tailwind va aquí: después del @import (que por norma CSS debe ir primero) y antes del
+   CSS propio, para que las clases de más abajo ganen en la cascada cuando haya conflicto. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
@@ -1257,6 +1263,15 @@ input[type=number] {
   resize: vertical;
   font-family: inherit;
   line-height: 1.5;
+}
+
+/* Los campos del editor de ficha se quedaban en el ancho por defecto del navegador (110 px),
+   así que al corregir una dirección no se alcanzaba a leer lo que uno estaba escribiendo. */
+.ficha-campo input,
+.ficha-campo select,
+.ficha-campo textarea {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Formulario para pasar una reserva a cita. */
