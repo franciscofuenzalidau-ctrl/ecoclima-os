@@ -54,6 +54,7 @@ function armarRecordatorio(lead: any, nombreTecnico: string): string {
     ``,
     `📍 Dirección: ${lead.address || '⚠️ NO REGISTRADA — llama al cliente antes de salir'}`,
     enlaceMapa ? `🗺️ Cómo llegar: ${enlaceMapa}` : null,
+    lead.address_reference ? `🧭 Referencia: ${lead.address_reference}` : null,
     ``,
     equipos ? `❄️ Equipos: ${equipos}` : null,
     lead.calculated_btu ? `📐 Capacidad: ${lead.calculated_btu}` : null,

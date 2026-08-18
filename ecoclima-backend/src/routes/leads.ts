@@ -368,6 +368,9 @@ router.get('/agenda', async (req: Request, res: Response) => {
               client_type: lead.client_type || null,
               equipment_count: lead.equipment_count || null,
               calculated_btu: lead.calculated_btu || null,
+              // Referencia del lugar. Va aparte de address para que la dirección quede limpia
+              // y Google Maps no se confunda con textos como "al lado del almacén".
+              address_reference: lead.address_reference || null,
               installation_age: lead.installation_age || null,
               last_maintenance_info: lead.last_maintenance_info || null,
               is_working_correctly: lead.is_working_correctly ?? null,

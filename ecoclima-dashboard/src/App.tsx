@@ -37,6 +37,9 @@ interface Lead {
   service_type: 'installation' | 'maintenance' | null;
   installation_age?: string;
   address?: string;
+  /** Referencia del lugar ("portón verde", "al lado del almacén"). Va aparte para que
+   *  address quede limpia y Google Maps la resuelva bien. */
+  address_reference?: string | null;
   appointment_time?: string;
   /** Cupo del calendario: "YYYY-MM-DDTHH:mm". Si está vacío, el cliente no tiene hora. */
   appointment_iso?: string | null;
@@ -164,6 +167,7 @@ interface AgendaSlot {
     status: string;
     technician: string;
     address?: string | null;
+    address_reference?: string | null;
     notes?: string | null;
     contact_phone?: string | null;
     client_type?: 'empresa' | 'particular' | null;
@@ -182,6 +186,23 @@ interface AgendaSlot {
   } | null;
 }
 
+
+/**
+ * Lo mínimo que necesita el editor de ficha. Sirve igual para una visita del calendario que
+ * para un cliente que todavía no tiene hora: antes el editor solo aceptaba lo primero y por
+ * eso las fichas sin agendar no se podían corregir.
+ */
+type FichaEditable = {
+  phone: string;
+  client_name?: string | null;
+  address?: string | null;
+  address_reference?: string | null;
+  contact_phone?: string | null;
+  service_type?: 'installation' | 'maintenance' | null;
+  equipment_count?: number | null;
+  installation_age?: string | null;
+  notes?: string | null;
+};
 interface AgendaResponse {
   hoy: string;
   horarios: string[];
@@ -1504,13 +1525,14 @@ export default function App() {
   };
 
   /** Abre el modo edición del detalle con los valores que ya tiene la ficha. */
-  const abrirEdicionFicha = (lead: NonNullable<AgendaSlot['lead']>) => {
+  const abrirEdicionFicha = (lead: FichaEditable) => {
     setFichaEdit({
       // El teléfono es el identificador de la ficha: cambiarlo traslada todo el registro,
       // por eso va aparte y no junto al resto de los campos.
       phone: lead.phone,
       client_name: lead.client_name || '',
       address: lead.address || '',
+      address_reference: lead.address_reference || '',
       contact_phone: lead.contact_phone || '',
       service_type: lead.service_type || 'maintenance',
       equipment_count: lead.equipment_count ? String(lead.equipment_count) : '',
@@ -1518,6 +1540,30 @@ export default function App() {
       notes: lead.notes || ''
     });
     setEditandoFicha(true);
+  };
+
+  /**
+   * Abre el editor para un cliente que NO tiene hora en el calendario.
+   * Reutiliza el mismo modal montando un cupo sintético, para no duplicar el formulario.
+   * El prefijo "ficha-" del id es lo que después permite distinguirlo de una cita real.
+   */
+  const abrirFichaSuelta = (lead: Lead) => {
+    setCupoDetalle({
+      id: `ficha-${lead.phone}`,
+      label: lead.client_name || `+${lead.phone}`,
+      date: '',
+      time: '',
+      ocupado: false,
+      esExtra: false,
+      reservado: false,
+      motivoReserva: null,
+      lead: {
+        ...lead,
+        status: lead.status || 'Pendiente',
+        technician: lead.technician || ''
+      } as AgendaSlot['lead']
+    } as AgendaSlot);
+    abrirEdicionFicha(lead);
   };
 
   /** Guarda los datos que se completaron desde el calendario. */
@@ -1544,6 +1590,7 @@ export default function App() {
       const cambios: Record<string, any> = {
         client_name: fichaEdit.client_name?.trim() || null,
         address: fichaEdit.address?.trim() || null,
+        address_reference: fichaEdit.address_reference?.trim() || null,
         contact_phone: fichaEdit.contact_phone?.replace(/\D/g, '') || null,
         service_type: fichaEdit.service_type === 'installation' ? 'installation' : 'maintenance',
         installation_age: fichaEdit.installation_age?.trim() || null,
@@ -1564,6 +1611,13 @@ export default function App() {
       }
 
       setEditandoFicha(false);
+      // El editor abierto desde la lista no tiene una cita real detrás: al guardar se cierra,
+      // en vez de caer en la vista de detalle de un cupo que no existe.
+      if ((cupoDetalle?.id || '').startsWith('ficha-')) {
+        setCupoDetalle(null);
+        await fetchLeads();
+        return;
+      }
       const [nuevaAgenda] = await Promise.all([
         fetch(`${API_BASE}/agenda?dias=42`).then(r => (r.ok ? r.json() : null)),
         fetchLeads()
@@ -2821,6 +2875,13 @@ export default function App() {
                               </select>
 
                               <div className="fila-iconos">
+                                <button
+                                  onClick={() => abrirFichaSuelta(lead)}
+                                  className="icono-btn"
+                                  title={t('tip_edit_lead', 'Corregir dirección, referencia u otros datos de esta ficha')}
+                                >
+                                  ✏️
+                                </button>
                                 <button
                                   onClick={() => setChatLead(lead)}
                                   className="icono-btn chat"
@@ -4276,6 +4337,19 @@ export default function App() {
                       placeholder={t('ph_address', 'Calle, número, sector')}
                       onChange={(e) => setFichaEdit(f => ({ ...f, address: e.target.value }))}
                     />
+                  </label>
+
+                  <label className="ficha-campo">
+                    <span>{t('ficha_referencia', 'Referencia del lugar')}</span>
+                    <input
+                      className="tech-input-field"
+                      value={fichaEdit.address_reference || ''}
+                      placeholder={t('ph_reference', 'Ej: portón verde, al lado del almacén')}
+                      onChange={(e) => setFichaEdit(f => ({ ...f, address_reference: e.target.value }))}
+                    />
+                    <span className="ficha-aviso">
+                      💡 {t('lbl_reference_hint', 'Va aparte para que la dirección quede limpia y Google Maps la encuentre. El técnico la recibe en su aviso.')}
+                    </span>
                   </label>
 
                   <label className="ficha-campo">
