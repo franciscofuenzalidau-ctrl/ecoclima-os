@@ -381,7 +381,10 @@ export class GeminiService {
     hydrateSession(session, existingLead);
 
     // Captura de respuestas a la encuesta de satisfacción (servicio ya completado)
-    const surveyMode = !!(existingLead && existingLead.status === 'Instalado');
+    // El estado "Instalado" no es la única vía: la encuesta también se dispara a mano desde el
+    // panel sin tocar el estado (POST /leads/:phone/send-survey). En esos casos el bot no hacía
+    // las preguntas y las respuestas del cliente se perdían sin dejar rastro.
+    const surveyMode = !!(existingLead && (existingLead.status === 'Instalado' || existingLead.survey_sent_at));
     if (surveyMode && message) {
       const ratingMatch = message.trim().match(/^([1-7])\b/);
       if (ratingMatch && !existingLead.satisfaction_rating) {
