@@ -2224,7 +2224,7 @@ export default function App() {
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 {t('slide_2_badge', 'DIAPOSITIVA 2: LOGÍSTICA DE ATENCIÓN')}
               </span>
-              <h2 className="text-4xl font-extrabold tracking-tight text-white font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300">
+              <h2 className="text-4xl font-extrabold tracking-tight font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
                 {t('title_routes', 'Planificación de Ruta Técnica')}
               </h2>
               <p className="text-slate-200 text-sm mt-1 font-medium">{t('desc_routes', 'Secuencia geográfica inteligente de visitas optimizadas por vecindad')}</p>
@@ -2362,7 +2362,7 @@ export default function App() {
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                 {t('slide_3_badge', 'DIAPOSITIVA 3: OPERACIONES')}
               </span>
-              <h2 className="text-4xl font-extrabold tracking-tight text-white font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300">
+              <h2 className="text-4xl font-extrabold tracking-tight font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
                 {t('title_leads', 'Control Operativo de Clientes')}
               </h2>
               <p className="text-slate-200 text-sm mt-1 font-medium">{t('desc_leads', 'Gestión directa de visitas técnicas, asignación y estado de servicios')}</p>
@@ -2934,7 +2934,7 @@ export default function App() {
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 {t('slide_4_badge', 'DIAPOSITIVA 4: PROTOCOLO TÉCNICO DE TERRENO')}
               </span>
-              <h2 className="text-4xl font-extrabold tracking-tight text-white font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300">
+              <h2 className="text-4xl font-extrabold tracking-tight font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
                 {t('title_terrain', 'Módulo Técnico Móvil')}
               </h2>
               <p className="text-slate-200 text-sm mt-1 font-medium">{t('desc_terrain', 'Lista de chequeo de calidad y registro de parámetros de instalación')}</p>
@@ -3193,7 +3193,7 @@ export default function App() {
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                 {t('slide_4_ai_badge', 'XPRIZE: AI-NATIVE OPERATIONS')}
               </span>
-              <h2 className="text-4xl font-extrabold tracking-tight text-white font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300">
+              <h2 className="text-4xl font-extrabold tracking-tight font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
                 {t('title_ai_control', 'Centro de Control de IA')}
               </h2>
               <p className="text-slate-200 text-sm mt-1 font-medium">{t('desc_ai_control', 'Registro de ejecución de agentes en producción y telemetría de la API de Gemini')}</p>
@@ -3335,7 +3335,7 @@ export default function App() {
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   {t('slide_5_badge', 'XPRIZE: BUSINESS VIABILITY')}
                 </span>
-                <h2 className="text-4xl font-extrabold tracking-tight text-white font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300">
+                <h2 className="text-4xl font-extrabold tracking-tight font-outfit mt-3 bg-gradient-to-r from-white via-slate-100 to-slate-300 bg-clip-text text-transparent">
                   {t('title_finances', 'Finanzas y Auditoría XPRIZE')}
                 </h2>
                 <p className="text-slate-200 text-sm mt-1 font-medium">{t('desc_finances', 'Control de ingresos, costos de operación y gastos de adquisición de clientes')}</p>
