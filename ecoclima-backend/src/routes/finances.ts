@@ -124,10 +124,9 @@ async function finanzasCompletas(): Promise<any[]> {
     meses.set(mes, fila);
   }
 
-  // Un mes con costos cargados pero sin servicios cerrados debe mostrar ingreso 0, no el valor viejo.
-  for (const [mes, fila] of meses) {
-    if (!(mes in ingresos)) fila.related_revenue = 0;
-  }
+  // Un mes SIN servicios cerrados conserva lo que se haya cargado a mano. Ponerlo en cero
+  // borraria el historial anterior a esta funcion: los servicios cerrados antes no tienen
+  // monto en la ficha, y su ingreso solo existe en lo que se cargo manualmente.
 
   return [...meses.values()];
 }
