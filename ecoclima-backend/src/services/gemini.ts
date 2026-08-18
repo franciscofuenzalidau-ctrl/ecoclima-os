@@ -9,7 +9,7 @@ import {
   ahoraEnChile, cuposLibres, detectarCupoElegido, detectarCupoPorOrdinal,
   cuposMencionadosEnOrden, etiquetaDeFecha, leerConfigAgenda, Slot
 } from './agenda';
-import { avisarTecnicoDeVisita, TECNICO_POR_DEFECTO } from './notificaciones';
+import { avisarTecnicoDeVisita, avisarAdministrador, TECNICO_POR_DEFECTO } from './notificaciones';
 
 dotenv.config();
 
@@ -323,6 +323,70 @@ async function notifyTechnicianOfLocation(clientPhone: string, technicianName: s
     }
   } catch (error: any) {
     console.error(`Error al enviar ubicación al técnico:`, error.response?.data || error.message);
+  }
+}
+
+
+/** Cada cuántas horas se repite el aviso mientras la falla de cuota siga viva. */
+const HORAS_ENTRE_AVISOS_DE_CUOTA = 6;
+
+/**
+ * Distingue "se acabó la cuota / falló la facturación" de cualquier otro fallo de red.
+ * Importa porque son dos incidentes muy distintos: el de red se arregla solo, el de cuota
+ * deja al bot mudo hasta que alguien recargue. Antes los dos se veían exactamente igual.
+ */
+function esErrorDeCuota(err: unknown): boolean {
+  const e = err as any;
+  const estado = e?.status ?? e?.code ?? e?.response?.status;
+  if (estado === 429) return true;
+  const partes = [e?.message, e?.response?.data ? JSON.stringify(e.response.data) : ''];
+  const texto = partes.join(' ').toLowerCase();
+  return texto.includes('429') || texto.includes('resource_exhausted') || texto.includes('quota');
+}
+
+/**
+ * Avisa a Francisco cuando Gemini deja de responder por cuota agotada.
+ *
+ * Antes un 429 se veía idéntico a un corte de red pasajero: el cliente recibía una disculpa
+ * genérica y nadie se enteraba, y así el bot estuvo caído semanas. El antirrepetición vive en
+ * Firestore y no en memoria porque Cloud Run se apaga entre conversaciones, y un contador en
+ * memoria se reiniciaría en cada arranque mandando un aviso por cada cliente que escriba.
+ */
+async function avisarSiEsCuotaAgotada(err: unknown): Promise<void> {
+  if (!esErrorDeCuota(err)) return;
+
+  const detalle = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+  // Marca fija y reconocible, para poder montarle encima una alerta de Cloud Monitoring.
+  console.error('[ALERTA CUOTA GEMINI] El bot no puede responder a los clientes: ' + detalle);
+
+  const ahora = Date.now();
+  try {
+    if (db) {
+      const ref = db.collection('system_alerts').doc('gemini_quota');
+      const doc = await ref.get();
+      const ultimo = doc.exists ? Date.parse(doc.data()?.last_notified_at || '') : NaN;
+      if (!Number.isNaN(ultimo) && ahora - ultimo < HORAS_ENTRE_AVISOS_DE_CUOTA * 3600000) return;
+      await ref.set({
+        last_notified_at: new Date(ahora).toISOString(),
+        detalle,
+        estado: 'gemini sin cuota'
+      }, { merge: true });
+    }
+
+    const mensaje = `🚨 EcoClima OS: el bot NO está respondiendo a los clientes.
+
+Gemini está rechazando las llamadas por cuota agotada o problema de facturación (error 429). Mientras siga así, cada cliente que escriba va a recibir una disculpa genérica.
+
+Revisa el saldo en Google Cloud → Facturación, proyecto ecoclima-os-7ca1b, servicio "Generative Language API".
+
+Detalle técnico: ${detalle}`;
+
+    const r = await avisarAdministrador(mensaje);
+    if (!r.enviado) {
+      console.error('[ALERTA CUOTA GEMINI] No se pudo avisar por WhatsApp: ' + r.motivo);
+    }
+  } catch (e) {
+    console.error('[ALERTA CUOTA GEMINI] Falló el envío del aviso:', e instanceof Error ? e.message : e);
   }
 }
 
@@ -851,6 +915,7 @@ ${surveyMode ? `
       const errorMessage = err instanceof Error ? err.message : String(err);
       aiLogger.logEvent(cleanPhone, 'error', `Error en API Gemini: ${errorMessage}`, 0, latencyMs);
       console.error('Error en Gemini API:', err);
+      avisarSiEsCuotaAgotada(err).catch(e => console.error('No se pudo procesar la alerta de cuota:', e));
       return 'Lo siento, he tenido un problema de conexión. ¿Podemos intentarlo nuevamente?';
     }
   }

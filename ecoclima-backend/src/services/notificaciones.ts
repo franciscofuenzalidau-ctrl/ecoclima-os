@@ -118,6 +118,18 @@ export async function enviarWhatsApp(opciones: {
 }
 
 /**
+ * Aviso al administrador del sistema cuando algo se rompe y los clientes lo están sufriendo.
+ *
+ * Va como texto libre a propósito: no hay plantilla aprobada para incidentes y el contenido
+ * cambia según la falla. Eso implica que Meta solo lo deja pasar si Francisco le escribió al
+ * número del bot en las últimas 24 h; si no, se pierde. Por eso quien llame a esta función
+ * debe dejar SIEMPRE además un rastro en el log y en Firestore, sin confiar solo en el WhatsApp.
+ */
+export async function avisarAdministrador(texto: string): Promise<ResultadoEnvio> {
+  return enviarWhatsApp({ to: TECNICOS.francisco, texto, preferirTexto: true });
+}
+
+/**
  * Avisa al técnico de una visita, con dirección y enlace a Google Maps.
  * Lo usan tanto el dashboard (al asignar técnico) como el bot (al agendar la cita).
  */
