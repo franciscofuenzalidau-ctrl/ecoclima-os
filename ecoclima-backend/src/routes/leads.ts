@@ -172,23 +172,14 @@ router.post('/', async (req: Request, res: Response) => {
     }
     updateLocalMock(cleanPhone, newLead);
     
-    // Automatically trigger notification if technician is assigned
-    if (newLead.technician) {
-      notifyTechnician(newLead.technician, cleanPhone, newLead).catch(err => {
-        console.error('Error in notifyTechnician background promise:', err);
-      });
-    }
+    // Al técnico no se le avisa aquí: el único aviso es el recordatorio de 1 h antes.
 
     res.status(201).json({ success: true, message: 'Cliente registrado con éxito.', lead: newLead });
   } catch (error: any) {
     console.warn(`Advertencia: Fallback a mock para crear lead debido a Firestore:`, error.message);
     updateLocalMock(cleanPhone, newLead);
     
-    if (newLead.technician) {
-      notifyTechnician(newLead.technician, cleanPhone, newLead).catch(err => {
-        console.error('Error in notifyTechnician background promise:', err);
-      });
-    }
+    // Al técnico no se le avisa aquí: el único aviso es el recordatorio de 1 h antes.
 
     res.status(201).json({ success: true, message: 'Cliente registrado con éxito (local mock).', lead: newLead });
   }
@@ -269,13 +260,17 @@ router.put('/:phone', async (req: Request, res: Response) => {
     }
 
     const previousStatus = doc.data()?.status;
+
+    // Si le cambian el técnico a una visita cuyo recordatorio YA salió, el nuevo se quedaría
+    // sin enterarse: ahora el aviso al agendar no existe. Al limpiar la marca, el recordatorio
+    // vuelve a dispararse en la siguiente revisión y le llega al que de verdad va a ir.
+    const tecnicoPrevio = doc.data()?.technician;
+    if (updateData.technician && updateData.technician !== tecnicoPrevio && doc.data()?.reminder_sent_at) {
+      updateData.reminder_sent_at = null;
+    }
     await leadRef.update(updateData);
     updateLocalMock(phone, updateData);
-    if (updateData.technician) {
-      notifyTechnician(updateData.technician, phone, updateData).catch(err => {
-        console.error('Error in notifyTechnician background promise:', err);
-      });
-    }
+    // Al técnico no se le avisa aquí: el único aviso es el recordatorio de 1 h antes.
     // Al cerrar la venta/servicio (estado Instalado): registrar fecha para el recordatorio
     // anual y enviar la encuesta de satisfacción al cliente
     if (updateData.status === 'Instalado' && previousStatus !== 'Instalado') {
@@ -295,11 +290,7 @@ router.put('/:phone', async (req: Request, res: Response) => {
 
     // Fallback: update local JSON mock file
     updateLocalMock(phone, updateData);
-    if (updateData.technician) {
-      notifyTechnician(updateData.technician, phone, updateData).catch(err => {
-        console.error('Error in notifyTechnician background promise:', err);
-      });
-    }
+    // Al técnico no se le avisa aquí: el único aviso es el recordatorio de 1 h antes.
     if (updateData.status === 'Instalado') {
       sendSatisfactionSurvey(phone).catch(err => {
         console.error('Error enviando encuesta de satisfacción:', err);
@@ -564,11 +555,7 @@ router.post('/agenda/reserva/:slotId/confirmar', async (req: Request, res: Respo
     config.reservas = config.reservas.filter(r => r.id !== slotId);
     await guardarConfigAgenda(config);
 
-    // Al técnico le llega la ficha ahora, y el recordatorio le llegará 3 h antes.
-    const leadCompleto = { ...(existente || {}), ...datos };
-    avisarTecnicoDeVisita(leadCompleto, datos.technician).catch(err =>
-      console.error('Error avisando al técnico de la reserva confirmada:', err)
-    );
+    // El técnico se entera por el recordatorio de 1 h antes, no al confirmarse la reserva.
 
     console.log(`[AGENDA] Reserva ${slotId} confirmada como cita de +${cleanPhone}.`);
     return res.status(200).json({ success: true, appointment_time: cupo.label });

@@ -9,9 +9,25 @@ import {
   ahoraEnChile, cuposLibres, detectarCupoElegido, detectarCupoPorOrdinal,
   cuposMencionadosEnOrden, etiquetaDeFecha, leerConfigAgenda, Slot
 } from './agenda';
-import { avisarTecnicoDeVisita, avisarAdministrador, TECNICO_POR_DEFECTO } from './notificaciones';
+import { avisarAdministrador, TECNICO_POR_DEFECTO } from './notificaciones';
 
 dotenv.config();
+
+/** WhatsApp de Pilar, la ejecutiva: el único canal humano que se le ofrece al cliente. */
+const WHATSAPP_PILAR = 'https://wa.me/56961897021';
+
+/**
+ * Cierre del flujo de VENTA. Va en TODOS los mensajes a propósito: quien escribe puede ser un
+ * desconocido que llegó por error, y siempre tiene que tener una salida a la vista.
+ */
+const FRASE_AYUDA_VENTA = `Si no quieres mantención o venta de aire acondicionado, contáctate con nuestros ejecutivos acá: ${WHATSAPP_PILAR}`;
+
+/**
+ * Cierre para quien YA es cliente de Furtz: encuesta post-servicio y recordatorio anual.
+ * Va UNA sola vez, en la despedida. Repetirlo en cada pregunta de la encuesta era ruido puro,
+ * y encima el texto de venta no tiene ningún sentido para alguien a quien acabamos de atender.
+ */
+const FRASE_CIERRE_CLIENTE = `Si necesitas algún servicio adicional o tuviste algún inconveniente, puedes comunicarte con nuestra ejecutiva Pilar acá: ${WHATSAPP_PILAR}`;
 
 // Helper to load rules dynamically
 function loadConfigRules(): any {
@@ -548,6 +564,10 @@ export class GeminiService {
     // o particular, estado del equipo, dirección— a alguien que solo quería renovar.
     const modoRenovacion = !!existingLead?.campaign_sent_at && !citaVigente;
 
+    // Encuesta y recordatorio hablan con alguien que YA es cliente: ahí el enlace va una sola
+    // vez, en la despedida, en vez de repetirse en cada mensaje como en el flujo de venta.
+    const enlaceSoloAlCierre = surveyMode || modoRenovacion;
+
     const bloqueRenovacion = modoRenovacion
       ? `
 🔁 MODO RENOVACIÓN ANUAL — ACTIVO PARA ESTE CLIENTE. LEE ESTO ANTES QUE NADA.
@@ -623,7 +643,7 @@ CÓMO ACTUAR:
     const bloqueCierre = modoRenovacion
       ? `3. CIERRE:
    - Apenas el cliente elija un cupo, confírmaselo con el día y la hora exactos, avísale
-     que un técnico lo visitará y despídete cordialmente. Ahí termina: NO lo derives a
+     que un técnico lo visitará y despídete cordialmente cerrando con la frase de la regla 2. Ahí termina: NO lo derives a
      la ejecutiva ni uses la frase de solicitud humana.`
       : `3. CIERRE Y DERIVACIÓN FINAL:
    - Al terminar de recopilar todos los datos de cualquiera de los dos flujos, agradécele al cliente y cierra con este texto EXACTO (el sistema lo detecta para alertar a la ejecutiva): "Tu solicitud quedó registrada con éxito. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo, te confirme el valor y coordine los detalles. Un momento, por favor.
@@ -660,7 +680,9 @@ PROHIBIDO PREGUNTAR (el sistema ya lo resuelve por otra vía):
 
 REGLAS ESTRUCTURALES Y DE COMUNICACIÓN (ESTRICTAS):
 1. PREGUNTAS DE A UNA: Debes hacer UNA SOLA PREGUNTA por cada mensaje. JAMÁS hagas dos o más preguntas juntas. Espera la respuesta del cliente antes de avanzar.
-2. ENLACE DE AYUDA (OBLIGATORIO): Al final de TODO mensaje que envíes, debes incluir SIEMPRE y de forma OBLIGATORIA esta frase exacta: "Si no quieres mantención o venta de aire acondicionado, contáctate con nuestros ejecutivos acá: https://wa.me/56961897021"
+2. ENLACE DE AYUDA (OBLIGATORIO): ${enlaceSoloAlCierre
+   ? `Este cliente YA es cliente de Furtz. NO incluyas ningún enlace ni frase de contacto en los mensajes intermedios. Solo en tu MENSAJE DE DESPEDIDA final, y una única vez, cierra con esta frase exacta: "${FRASE_CIERRE_CLIENTE}"`
+   : `Al final de TODO mensaje que envíes, debes incluir SIEMPRE y de forma OBLIGATORIA esta frase exacta: "${FRASE_AYUDA_VENTA}"`}
 3. SOLICITUD HUMANA: Si el cliente rechaza el proceso del bot, se frustra, o pide explícitamente hablar con un humano o asesor, debes responder EXACTA Y ÚNICAMENTE: "Comprendo. Enseguida le notificaré a nuestra ejecutiva Pilar para que se contacte contigo. Un momento, por favor." (El sistema detectará esta frase para enviar la alerta).
 
 REGLAS DE NEGOCIO Y AGENDA:
@@ -733,7 +755,7 @@ ${surveyMode ? `
      4) "¿Nos recomendarías a tus amigos o vecinos?"
      5) "Por último, ¿quieres dejarnos algún comentario o sugerencia? Puedes escribir con total libertad, lo leemos todos."
    - Al recibir el comentario final responde: "¡Muchas gracias por tu tiempo! 💙 Tu opinión nos ayuda a mejorar cada día. ¿Nos autorizas a compartir tu comentario como testimonio de clientes de Furtz Clima?"
-   - Tras su respuesta, agradece y despídete cordialmente. No insistas ni repitas preguntas ya respondidas.
+   - Tras su respuesta, agradece y despídete cordialmente. No insistas ni repitas preguntas ya respondidas. En ESA despedida, y solo ahí, cierra con la frase indicada en la regla 2.
    - Si el cliente no quiere responder, agradécele igual y despídete sin insistir.` : ''}
 `;
 
@@ -775,9 +797,11 @@ ${surveyMode ? `
 
       let replyText = response.text || 'Disculpa, no pude procesar tu mensaje. ¿Podrías repetirlo?';
       
-      // Forzar siempre el link de ayuda si la IA olvidó ponerlo
-      if (!replyText.includes("56961897021") && !replyText.includes("Enseguida le notificaré")) {
-        replyText += "\n\nSi no quieres mantención o venta de aire acondicionado, contáctate con nuestros ejecutivos acá: https://wa.me/56961897021";
+      // Refuerzo por si la IA olvidó el enlace. Solo aplica al flujo de venta: en la encuesta
+      // y en el recordatorio, forzarlo aquí repetiría la frase en cada pregunta, que es justo
+      // lo que se quiere evitar.
+      if (!enlaceSoloAlCierre && !replyText.includes("56961897021") && !replyText.includes("Enseguida le notificaré")) {
+        replyText += "\n\n" + FRASE_AYUDA_VENTA;
       }
 
       session.history.push({ role: 'model', parts: [{ text: replyText }] });
@@ -895,10 +919,8 @@ ${surveyMode ? `
       // Recién agendada la visita, se le avisa al técnico con la dirección, el enlace al
       // mapa y el día y hora que eligió el cliente. Antes esto solo ocurría si Pilar le
       // asignaba técnico a mano, así que una cita tomada de noche no le llegaba a nadie.
-      if (tecnicoParaAvisar) {
-        avisarTecnicoDeVisita({ ...session.leadData, phone: cleanPhone }, tecnicoParaAvisar, avisoEsActualizacion)
-          .catch(err => console.error('Error avisando al técnico de la cita agendada:', err));
-      }
+      // Antes se avisaba al técnico apenas el cliente elegía hora. Ahora el único aviso es el
+      // recordatorio de 1 h antes, para que no le lleguen todas las citas juntas.
 
       const latencyMs = Date.now() - startTime;
       const tokensUsed = response.usageMetadata?.totalTokenCount || Math.round((message.length + replyText.length) * 0.7);

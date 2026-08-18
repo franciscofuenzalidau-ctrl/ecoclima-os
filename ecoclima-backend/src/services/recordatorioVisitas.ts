@@ -1,9 +1,10 @@
 /**
  * Recordatorio al técnico unas horas antes de cada visita.
  *
- * El aviso que ya existía se manda en el momento de agendar, que puede ser semanas antes.
- * Este otro llega el mismo día, con la ficha completa del cliente, para que el técnico
- * salga a terreno sin tener que buscar nada.
+ * Es el ÚNICO aviso que recibe el técnico. Antes también se le mandaba uno al agendar, pero
+ * las citas se cargan de a muchas y esos mensajes le llegaban todos juntos, días antes de las
+ * visitas, así que la información se diluía. Este llega el mismo día, poco antes de salir, con
+ * la ficha completa del cliente.
  *
  * Se dispara desde /health igual que la campaña: Cloud Run apaga el contenedor cuando no
  * hay tráfico, así que el uptime check es el único reloj confiable que tenemos.
@@ -12,8 +13,9 @@ import { db } from './firebase';
 import { enviarWhatsApp, telefonoDelTecnico, TECNICO_POR_DEFECTO } from './notificaciones';
 import { ahoraEnChile } from './agenda';
 
-/** Con cuánta anticipación se avisa. */
-const HORAS_ANTES = 3;
+/** Con cuánta anticipación se avisa. Es el ÚNICO aviso al técnico: al agendar ya no se manda
+ *  nada, porque las citas se cargan de a muchas y los avisos le llegaban todos juntos. */
+const HORAS_ANTES = 1;
 
 /** Cada cuánto se revisa, para no consultar la base en cada golpe del health check. */
 const MINUTOS_ENTRE_REVISIONES = 10;
