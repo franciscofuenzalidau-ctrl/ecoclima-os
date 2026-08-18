@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 import axios from 'axios';
 import { db } from '../services/firebase';
 import { clearSession } from '../services/gemini';
-import { enviarWhatsApp, avisarTecnicoDeVisita, TECNICO_POR_DEFECTO } from '../services/notificaciones';
+import { enviarWhatsApp, TECNICO_POR_DEFECTO } from '../services/notificaciones';
 import {
   cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
   leerConfigAgenda, guardarConfigAgenda
@@ -988,40 +988,6 @@ function optimizeRouteHelper(leads: any[]): any[] {
   }
 
   return optimizedRoute;
-}
-
-// Helper to notify technician of assignment
-async function notifyTechnician(technicianName: string, leadPhone: string, leadDataUpdate: any) {
-  try {
-    // La ficha se lee de FIRESTORE. Antes se leía de data_mock/clientes_leads.json,
-    // que en Cloud Run vive en un disco efímero y se borra en cada reinicio: por eso
-    // al técnico le llegaba "Dirección: No especificada" aunque el dato sí existiera.
-    let fullLead: any = { phone: leadPhone, ...leadDataUpdate };
-
-    if (db) {
-      try {
-        const doc = await db.collection('leads').doc(leadPhone).get();
-        if (doc.exists) fullLead = { ...doc.data(), ...leadDataUpdate, phone: leadPhone };
-      } catch (err: any) {
-        console.error('Error leyendo el lead desde Firestore para avisar al técnico:', err.message);
-      }
-    } else {
-      try {
-        const mockLeadsPath = path.resolve(process.cwd(), 'data_mock', 'clientes_leads.json');
-        if (fs.existsSync(mockLeadsPath)) {
-          const mockData = JSON.parse(fs.readFileSync(mockLeadsPath, 'utf8'));
-          const found = mockData.find((item: any) => item.phone === leadPhone);
-          if (found) fullLead = { ...found, ...leadDataUpdate };
-        }
-      } catch (err) {
-        console.error('Error al leer el lead para la notificación del técnico:', err);
-      }
-    }
-
-    await avisarTecnicoDeVisita(fullLead, technicianName);
-  } catch (error: any) {
-    console.error(`Error al enviar notificación de WhatsApp al técnico:`, error.response?.data || error.message);
-  }
 }
 
 // Send post-service satisfaction survey to the client via WhatsApp
