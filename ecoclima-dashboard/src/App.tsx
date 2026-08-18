@@ -1282,6 +1282,49 @@ export default function App() {
     }
   };
 
+  /**
+   * Agrega un mes a la tabla de finanzas.
+   *
+   * Sin esto la tabla solo dibujaba filas para los meses que ya existían, así que era imposible
+   * empezar un mes nuevo desde el panel: había que cargarlo por fuera. Propone el mes siguiente
+   * al último cargado, que es el caso normal.
+   */
+  const MESES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+  const agregarMesFinanzas = () => {
+    let indice: number;
+    let anio: number;
+
+    const ultimo = financials.length ? String(financials[financials.length - 1].month || '') : '';
+    const [nombreUlt, anioUlt] = ultimo.split(' ');
+    const i = MESES_ES.indexOf(nombreUlt);
+
+    if (i >= 0 && anioUlt) {
+      indice = (i + 1) % 12;
+      anio = Number(anioUlt) + (i === 11 ? 1 : 0);
+    } else {
+      const hoy = new Date();
+      indice = hoy.getMonth();
+      anio = hoy.getFullYear();
+    }
+
+    const nombre = `${MESES_ES[indice]} ${anio}`;
+    if (financials.some(f => String(f.month) === nombre)) {
+      alert(`${nombre} ya está en la tabla.`);
+      return;
+    }
+
+    setFinancials(prev => [...prev, {
+      month: nombre,
+      client_revenue: 0,
+      related_revenue: 0,
+      operating_costs: 0,
+      marketing_spend: 0,
+      cost_description: ''
+    } as any]);
+  };
+
   const exportXPRIZEFinancials = async () => {
     try {
       const res = await fetch(`${BACKEND_URL}/api/finances/export-audit`, {
@@ -2740,7 +2783,20 @@ export default function App() {
               {agendaAbierta && agenda && agenda.fueraDeAgenda.length > 0 && (
                 <div className="text-[11px] text-amber-300/90 bg-amber-500/8 border border-amber-500/20 rounded-lg p-2.5">
                   ⚠️ {agenda.fueraDeAgenda.length} {t('warn_out_of_range', 'cita(s) fuera del rango mostrado')}:{' '}
-                  {agenda.fueraDeAgenda.map(c => `${c.client_name || '+' + c.phone} — ${c.id.replace('T', ' ')}`).join(' · ')}
+                  {agenda.fueraDeAgenda.map((c, i) => {
+                    // Una cita pasada que sigue "Agendado" es un pendiente real: la visita ocurrió
+                    // y nadie la cerró, así que no salió la encuesta ni se registró el ingreso.
+                    const pendiente = c.status !== 'Instalado' && c.status !== 'Cancelado';
+                    return (
+                      <span key={c.id + c.phone}>
+                        {i > 0 ? ' · ' : ''}
+                        <span style={pendiente ? { color: '#fbbf24', fontWeight: 700 } : undefined}>
+                          {c.client_name || `+${c.phone}`} — {c.id.replace('T', ' ')} ({c.status})
+                          {pendiente ? ' ⟵ sin cerrar' : ''}
+                        </span>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -3481,12 +3537,21 @@ export default function App() {
                     <DollarSign className="h-5 w-5 text-cyan-400" />
                     {t('tbl_monthly_statement', 'Estado de Ingresos y Costos Mensuales')}
                   </h3>
-                  <button
-                    onClick={saveFinancials}
-                    className="btn-premium-cyan text-white font-bold px-4 py-1.5 rounded-xl text-xs transition active:scale-95 cursor-pointer"
-                  >
-                    {t('btn_save_changes', 'Guardar Cambios')}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={agregarMesFinanzas}
+                      className="agenda-btn suave"
+                      title="Agrega el mes siguiente a la tabla para poder cargar sus costos"
+                    >
+                      + Agregar mes
+                    </button>
+                    <button
+                      onClick={saveFinancials}
+                      className="btn-premium-cyan text-white font-bold px-4 py-1.5 rounded-xl text-xs transition active:scale-95 cursor-pointer"
+                    >
+                      {t('btn_save_changes', 'Guardar Cambios')}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="financial-table-container">
