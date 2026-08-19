@@ -2419,6 +2419,39 @@ export default function App() {
                   </button>
                 </div>
                 
+                {/* Clientes con direccion escrita que el buscador no logro ubicar. Se muestran
+                    aparte a proposito: antes desaparecian de la vista sin explicacion, y poner
+                    un punto aproximado mandaria al tecnico a la direccion equivocada. */}
+                {(() => {
+                  const ubicados = new Set(optimizedRoute.map(s => s.phone));
+                  const sinUbicar = leads.filter(l =>
+                    l.address && !(l.latitude && l.longitude) && !ubicados.has(l.phone) &&
+                    l.status !== 'Cancelado'
+                  );
+                  if (sinUbicar.length === 0) return null;
+                  return (
+                    <div className="text-[11px] text-amber-300/90 bg-amber-500/8 border border-amber-500/20 rounded-lg p-3 mb-3">
+                      <div className="font-bold mb-1">
+                        📍 {sinUbicar.length} cliente(s) con dirección que no se pudo ubicar en el mapa
+                      </div>
+                      <div className="text-amber-200/80 mb-2">
+                        No aparecen en la ruta. Suele ser por una dirección incompleta o mal escrita:
+                        corrígela en Gestión de Leads con el botón ✏️ y se ubica sola al guardar.
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {sinUbicar.slice(0, 8).map(l => (
+                          <div key={l.phone} className="text-amber-100/90">
+                            • <span className="font-semibold">{l.client_name || `+${l.phone}`}</span>
+                            <span className="text-amber-200/70"> — {l.address}</span>
+                          </div>
+                        ))}
+                        {sinUbicar.length > 8 && (
+                          <div className="text-amber-200/60">y {sinUbicar.length - 8} más…</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {optimizedRoute.length === 0 ? (
                   <div className="text-slate-400 text-center py-12 text-sm">{t('lbl_no_geolocations', 'Sin geolocalizaciones registradas.')}</div>
                 ) : (

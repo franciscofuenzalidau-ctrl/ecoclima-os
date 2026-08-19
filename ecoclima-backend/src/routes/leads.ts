@@ -7,6 +7,7 @@ import { db } from '../services/firebase';
 import { clearSession } from '../services/gemini';
 import { enviarWhatsApp, TECNICO_POR_DEFECTO } from '../services/notificaciones';
 import { calcularMontoBrutoCLP, brutoCLPaNetoUSD } from '../services/tarifas';
+import { geocodificarDireccion } from '../services/geocodificacion';
 import {
   cuposDelPeriodo, construirCupo, esDiaHabil, SLOT_TIMES, ahoraEnChile,
   leerConfigAgenda, guardarConfigAgenda
@@ -262,6 +263,24 @@ router.put('/:phone', async (req: Request, res: Response) => {
 
     const previousStatus = doc.data()?.status;
 
+    // Si cambio la direccion, se buscan sus coordenadas para que el cliente aparezca en el mapa
+    // y en la ruta. Va en segundo plano: la consulta tarda ~1 s y no debe frenar el guardado.
+    const direccionNueva = String(updateData.address || '').trim();
+    const direccionAnterior = String(doc.data()?.address || '').trim();
+    if (direccionNueva && direccionNueva !== direccionAnterior) {
+      geocodificarDireccion(direccionNueva)
+        .then(async coords => {
+          if (!coords) {
+            console.warn(`[GEO] Sin coordenadas para "${direccionNueva}" (+${phone}).`);
+            return;
+          }
+          await leadRef.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
+          updateLocalMock(phone, coords);
+          console.log(`[GEO] +${phone}: ${coords.latitude}, ${coords.longitude}`);
+        })
+        .catch(err => console.error('[GEO] Error en segundo plano:', err.message));
+    }
+
     // Si le cambian el técnico a una visita cuyo recordatorio YA salió, el nuevo se quedaría
     // sin enterarse: ahora el aviso al agendar no existe. Al limpiar la marca, el recordatorio
     // vuelve a dispararse en la siguiente revisión y le llega al que de verdad va a ir.
@@ -351,6 +370,52 @@ async function cargarLeads(): Promise<any[]> {
 
 // GET /api/leads/agenda - Calendario para el dashboard.
 // Devuelve los cupos reales (lunes a viernes, 09:15 y 14:00) con quién los tiene tomados.
+/**
+ * POST /api/leads/geocodificar - Busca coordenadas para las fichas que tienen direccion escrita
+ * pero no tienen GPS.
+ *
+ * Hasta ahora las coordenadas solo llegaban si el cliente mandaba su ubicacion por WhatsApp, asi
+ * que ninguna ficha las tenia y Rutas y Logistica se veia vacia. Esto rellena lo que ya existe;
+ * de aqui en adelante se hace solo al guardar una direccion.
+ *
+ * Tarda ~1 segundo por ficha: Nominatim permite una consulta por segundo y hay que respetarlo.
+ */
+router.post('/geocodificar', async (req: Request, res: Response) => {
+  if (!db) return res.status(500).json({ error: 'Firestore no está inicializado.' });
+
+  try {
+    const snapshot = await db.collection('leads').get();
+    const pendientes = snapshot.docs.filter(d => {
+      const l = d.data() as any;
+      return l.address && !(l.latitude && l.longitude);
+    });
+
+    let resueltas = 0;
+    const sinResolver: string[] = [];
+
+    for (const doc of pendientes) {
+      const lead = doc.data() as any;
+      const coords = await geocodificarDireccion(lead.address);
+      if (coords) {
+        await doc.ref.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
+        updateLocalMock(doc.id, coords);
+        resueltas++;
+      } else {
+        sinResolver.push(lead.address);
+      }
+    }
+
+    console.log(`[GEO] Proceso completo: ${resueltas} de ${pendientes.length} fichas ubicadas.`);
+    return res.status(200).json({
+      revisadas: pendientes.length,
+      resueltas,
+      sinResolver
+    });
+  } catch (error: any) {
+    console.error('[GEO] Error en el proceso masivo:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
 router.get('/agenda', async (req: Request, res: Response) => {
   try {
     const dias = Math.min(Math.max(parseInt(String(req.query.dias || '28'), 10) || 28, 7), 120);
