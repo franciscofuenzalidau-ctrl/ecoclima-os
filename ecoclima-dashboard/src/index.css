@@ -2,6 +2,9 @@
 
 /* Tailwind va aquí: después del @import (que por norma CSS debe ir primero) y antes del
    CSS propio, para que las clases de más abajo ganen en la cascada cuando haya conflicto. */
+/* Estilos del mapa donde se marca la ubicacion de un cliente a mano. */
+@import 'leaflet/dist/leaflet.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { 
   Users, 
   Wrench, 
@@ -198,6 +198,8 @@ type FichaEditable = {
   client_name?: string | null;
   address?: string | null;
   address_reference?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
   contact_phone?: string | null;
   service_type?: 'installation' | 'maintenance' | null;
   equipment_count?: number | null;
@@ -943,6 +945,20 @@ export default function App() {
    * contenido le quedaban 119 px y el texto se leia letra por letra. Ahora se abre y cierra.
    */
   const [menuAbierto, setMenuAbierto] = useState(false);
+  /**
+   * Selector de ubicación en el mapa.
+   *
+   * Hace falta porque el buscador de direcciones no reconoce todo: direcciones rurales como
+   * "RUTA T-45 km 13", referencias tipo "POSTE 39" o nombres mal escritos no resuelven, y sin
+   * coordenadas el cliente no aparece en la ruta. Aquí se marca el punto a mano y listo.
+   */
+  const [mapaAbierto, setMapaAbierto] = useState(false);
+  const [mapaPunto, setMapaPunto] = useState<{ lat: number; lon: number } | null>(null);
+  const [mapaBusqueda, setMapaBusqueda] = useState('');
+  const [mapaBuscando, setMapaBuscando] = useState(false);
+  const mapaRef = useRef<any>(null);
+  const marcadorRef = useRef<any>(null);
+  const contenedorMapaRef = useRef<HTMLDivElement | null>(null);
   const [cupoDetalle, setCupoDetalle] = useState<AgendaSlot | null>(null);
   /**
    * Cierre de servicio. Al marcar "Instalado" ya no basta con cambiar el estado: el técnico
@@ -1690,6 +1706,8 @@ export default function App() {
       client_name: lead.client_name || '',
       address: lead.address || '',
       address_reference: lead.address_reference || '',
+      latitude: lead.latitude != null ? String(lead.latitude) : '',
+      longitude: lead.longitude != null ? String(lead.longitude) : '',
       contact_phone: lead.contact_phone || '',
       service_type: lead.service_type || 'maintenance',
       equipment_count: lead.equipment_count ? String(lead.equipment_count) : '',
@@ -1748,6 +1766,11 @@ export default function App() {
         client_name: fichaEdit.client_name?.trim() || null,
         address: fichaEdit.address?.trim() || null,
         address_reference: fichaEdit.address_reference?.trim() || null,
+        // El punto marcado a mano en el mapa. Se manda como numero o no se manda: un string
+        // vacio guardaria NaN y el cliente desapareceria de la ruta.
+        ...(fichaEdit.latitude && fichaEdit.longitude
+          ? { latitude: Number(fichaEdit.latitude), longitude: Number(fichaEdit.longitude) }
+          : {}),
         contact_phone: fichaEdit.contact_phone?.replace(/\D/g, '') || null,
         service_type: fichaEdit.service_type === 'installation' ? 'installation' : 'maintenance',
         installation_age: fichaEdit.installation_age?.trim() || null,
@@ -1792,6 +1815,99 @@ export default function App() {
     } finally {
       setGuardandoCita(false);
     }
+  };
+
+  /** Centro de Valdivia, para cuando la ficha todavía no tiene punto. */
+  const CENTRO_VALDIVIA: [number, number] = [-39.8142, -73.2459];
+
+  /**
+   * Monta el mapa cuando se abre el selector. Leaflet necesita que el div ya exista en pantalla,
+   * por eso se hace en un efecto y no al hacer clic en el botón.
+   */
+  useEffect(() => {
+    if (!mapaAbierto || !contenedorMapaRef.current) return;
+
+    let cancelado = false;
+    (async () => {
+      const L = (await import('leaflet')).default;
+      if (cancelado || !contenedorMapaRef.current) return;
+
+      const inicio: [number, number] = mapaPunto
+        ? [mapaPunto.lat, mapaPunto.lon]
+        : CENTRO_VALDIVIA;
+
+      const mapa = L.map(contenedorMapaRef.current).setView(inicio, mapaPunto ? 17 : 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19
+      }).addTo(mapa);
+
+      // Icono propio: los de Leaflet vienen de archivos que el empaquetado no incluye.
+      const icono = L.divIcon({
+        className: '',
+        html: '<div style="width:18px;height:18px;border-radius:50%;background:#22d3ee;border:3px solid #fff;box-shadow:0 0 10px rgba(34,211,238,.9)"></div>',
+        iconSize: [18, 18],
+        iconAnchor: [9, 9]
+      });
+
+      const poner = (lat: number, lon: number) => {
+        if (marcadorRef.current) marcadorRef.current.setLatLng([lat, lon]);
+        else marcadorRef.current = L.marker([lat, lon], { icon: icono, draggable: true }).addTo(mapa);
+        marcadorRef.current.off('dragend');
+        marcadorRef.current.on('dragend', () => {
+          const p = marcadorRef.current.getLatLng();
+          setMapaPunto({ lat: p.lat, lon: p.lng });
+        });
+        setMapaPunto({ lat, lon });
+      };
+
+      if (mapaPunto) poner(mapaPunto.lat, mapaPunto.lon);
+      mapa.on('click', (e: any) => poner(e.latlng.lat, e.latlng.lng));
+
+      mapaRef.current = mapa;
+      // Leaflet calcula mal el tamaño si el contenedor acaba de aparecer.
+      setTimeout(() => mapa.invalidateSize(), 150);
+    })();
+
+    return () => {
+      cancelado = true;
+      if (mapaRef.current) { mapaRef.current.remove(); mapaRef.current = null; }
+      marcadorRef.current = null;
+    };
+  }, [mapaAbierto]);
+
+  /** Busca una referencia en el mapa y mueve la vista hasta ahí. */
+  const buscarEnMapa = async () => {
+    const q = mapaBusqueda.trim();
+    if (q.length < 3) return;
+    setMapaBuscando(true);
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=cl&q='
+        + encodeURIComponent(q + ', Valdivia, Chile');
+      const r = await fetch(url);
+      const datos = await r.json();
+      if (!datos || !datos.length) {
+        alert('No se encontró esa referencia. Puedes acercarte con el mapa y tocar el punto exacto.');
+        return;
+      }
+      const lat = Number(datos[0].lat), lon = Number(datos[0].lon);
+      if (mapaRef.current) mapaRef.current.setView([lat, lon], 17);
+    } catch {
+      alert('No se pudo buscar. Revisa la conexión.');
+    } finally {
+      setMapaBuscando(false);
+    }
+  };
+
+  /** Guarda el punto elegido en la ficha que se está editando. */
+  const usarPuntoDelMapa = () => {
+    if (!mapaPunto) { alert('Toca el mapa para marcar la ubicación.'); return; }
+    setFichaEdit(f => ({
+      ...f,
+      latitude: String(mapaPunto.lat),
+      longitude: String(mapaPunto.lon)
+    }));
+    setMapaAbierto(false);
   };
 
   const soltarReserva = async (cupo: AgendaSlot) => {
@@ -4571,6 +4687,54 @@ export default function App() {
 
       {/* Modal de conversación del cliente */}
 
+
+      {mapaAbierto && (
+        <div className="modal-overlay" style={{ zIndex: 60 }} onClick={() => setMapaAbierto(false)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>📍 Marcar ubicación</h3>
+                <p className="modal-sub">Toca el mapa donde queda el cliente. Puedes arrastrar el punto para ajustarlo.</p>
+              </div>
+              <button className="modal-cerrar" onClick={() => setMapaAbierto(false)} aria-label="Cerrar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <input
+                  className="tech-input-field"
+                  style={{ flex: 1 }}
+                  value={mapaBusqueda}
+                  placeholder="Buscar una calle o referencia cercana"
+                  onChange={(e) => setMapaBusqueda(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') buscarEnMapa(); }}
+                />
+                <button className="agenda-btn suave" disabled={mapaBuscando} onClick={buscarEnMapa}>
+                  {mapaBuscando ? 'Buscando...' : 'Buscar'}
+                </button>
+              </div>
+
+              <div
+                ref={contenedorMapaRef}
+                style={{ height: 340, width: '100%', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,.12)' }}
+              />
+
+              <div style={{ marginTop: 10, fontSize: 12, color: mapaPunto ? '#34d399' : '#fbbf24' }}>
+                {mapaPunto
+                  ? `Punto elegido: ${mapaPunto.lat.toFixed(5)}, ${mapaPunto.lon.toFixed(5)}`
+                  : 'Todavía no has marcado ningún punto. Toca el mapa.'}
+              </div>
+
+              <div className="agenda-acciones" style={{ marginTop: 12 }}>
+                <button className="agenda-btn" onClick={usarPuntoDelMapa}>Usar este punto</button>
+                <button className="agenda-btn suave" onClick={() => setMapaAbierto(false)}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {cierreServicio && (
         <div className="modal-overlay" onClick={() => setCierreServicio(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
@@ -4756,6 +4920,38 @@ export default function App() {
                       💡 {t('lbl_reference_hint', 'Va aparte para que la dirección quede limpia y Google Maps la encuentre. El técnico la recibe en su aviso.')}
                     </span>
                   </label>
+
+                  <div className="ficha-campo">
+                    <span>Ubicación en el mapa</span>
+                    {fichaEdit.latitude && fichaEdit.longitude ? (
+                      <div className="ficha-valor" style={{ color: '#34d399' }}>
+                        ✅ Ubicada — {Number(fichaEdit.latitude).toFixed(5)}, {Number(fichaEdit.longitude).toFixed(5)}
+                      </div>
+                    ) : (
+                      <div className="ficha-valor" style={{ color: '#fbbf24' }}>
+                        ⚠️ Sin ubicar. No aparece en el mapa ni en la ruta.
+                      </div>
+                    )}
+                    <button
+                      className="agenda-btn suave"
+                      style={{ marginTop: 6, alignSelf: 'flex-start' }}
+                      onClick={() => {
+                        setMapaPunto(
+                          fichaEdit.latitude && fichaEdit.longitude
+                            ? { lat: Number(fichaEdit.latitude), lon: Number(fichaEdit.longitude) }
+                            : null
+                        );
+                        setMapaBusqueda(fichaEdit.address || '');
+                        setMapaAbierto(true);
+                      }}
+                    >
+                      📍 Marcar en el mapa
+                    </button>
+                    <span className="ficha-aviso">
+                      💡 Úsalo cuando la dirección no se reconozca sola: direcciones rurales,
+                      referencias tipo "poste 39" o nombres mal escritos.
+                    </span>
+                  </div>
 
                   <label className="ficha-campo">
                     <span>{t('ficha_otro_contacto', 'Otro contacto')}</span>
