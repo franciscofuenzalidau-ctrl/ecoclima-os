@@ -40,12 +40,18 @@ export function parametrosFinancieros(): { iva: number; clpPorUsd: number } {
 }
 
 /**
- * Precio de una instalación. Los precios reales son un rango (la mano de obra va de 100.000 a
- * 150.000 según acceso, altura y cableado), así que se usa el promedio como referencia. Quien
- * cierra el servicio puede corregir el monto si el trabajo se cobró distinto.
+ * Precio estándar de una instalación, definido por el negocio en installation_price.
+ *
+ * Ojo con no confundirlo con installation_cost {min, max}: ese rango es el que el bot le
+ * menciona al cliente al cotizar, y se mantiene aparte. Este es el valor con el que se
+ * contabiliza una instalación ya realizada. Si el trabajo se cobró distinto, quien cierra el
+ * servicio corrige el monto a mano.
  */
 export function precioInstalacion(): number {
   const c = leerConfig();
+  const estandar = Number(c.installation_price);
+  if (Number.isFinite(estandar) && estandar > 0) return estandar;
+  // Respaldo por si algún día se borra el precio estándar: el promedio del rango de cotización.
   const min = Number(c.installation_cost?.min ?? 100000);
   const max = Number(c.installation_cost?.max ?? 150000);
   return Math.round((min + max) / 2);

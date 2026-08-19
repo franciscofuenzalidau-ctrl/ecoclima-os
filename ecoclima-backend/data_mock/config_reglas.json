@@ -72,5 +72,6 @@
   },
   "sales_phone": "56990939188",
   "iva_porcentaje": 19,
-  "clp_por_usd": 930
+  "clp_por_usd": 930,
+  "installation_price": 129000
 }
