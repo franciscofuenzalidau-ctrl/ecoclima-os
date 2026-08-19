@@ -12,6 +12,7 @@ import {
   MapPin,
   Mail,
   X,
+  Menu,
   Send,
   CheckCircle2,
   Loader2,
@@ -937,6 +938,11 @@ export default function App() {
   const [chatLead, setChatLead] = useState<Lead | null>(null);
   // Cupo del calendario abierto en detalle. El calendario mostraba solo nombre y dirección:
   // las notas y el resto de la ficha quedaban invisibles desde la agenda.
+  /**
+   * En el telefono la barra lateral ocupaba 256 de 375 px (el 68% de la pantalla), asi que al
+   * contenido le quedaban 119 px y el texto se leia letra por letra. Ahora se abre y cierra.
+   */
+  const [menuAbierto, setMenuAbierto] = useState(false);
   const [cupoDetalle, setCupoDetalle] = useState<AgendaSlot | null>(null);
   /**
    * Cierre de servicio. Al marcar "Instalado" ya no basta con cambiar el estado: el técnico
@@ -1982,7 +1988,14 @@ export default function App() {
       <div className="absolute bottom-[-100px] right-[-100px] w-[700px] h-[700px] rounded-full bg-purple-500/5 blur-[200px] pointer-events-none -z-10"></div>
       
       {/* Left Navigation Sidebar */}
-      <aside className="w-64 h-full bg-[#060a13] border-r border-[#162035] flex flex-col justify-between p-4 shrink-0 z-10">
+      {/* Fondo que cierra el menu al tocarlo. Solo existe en movil. */}
+      {menuAbierto && (
+        <div
+          className="fixed inset-0 bg-black/60 z-30 lg:hidden"
+          onClick={() => setMenuAbierto(false)}
+        />
+      )}
+      <aside className={`w-64 h-full bg-[#060a13] border-r border-[#162035] flex flex-col justify-between p-4 shrink-0 z-40 fixed inset-y-0 left-0 transition-transform duration-200 lg:static lg:translate-x-0 ${menuAbierto ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col gap-6">
           {/* Logo / Branding */}
           <div className="flex items-center gap-3 px-2 py-1">
@@ -2000,7 +2013,7 @@ export default function App() {
           {/* Navigation Menu */}
           <nav className="flex flex-col gap-2">
             <button
-              onClick={() => setCurrentSlide(0)}
+              onClick={() => { setCurrentSlide(0); setMenuAbierto(false); }}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 border-2 ${
                 currentSlide === 0 
                   ? 'border-white text-white bg-slate-900/30' 
@@ -2012,7 +2025,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setCurrentSlide(1)}
+              onClick={() => { setCurrentSlide(1); setMenuAbierto(false); }}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 border-2 ${
                 currentSlide === 1 
                   ? 'border-white text-white bg-slate-900/30' 
@@ -2024,7 +2037,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setCurrentSlide(2)}
+              onClick={() => { setCurrentSlide(2); setMenuAbierto(false); }}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 border-2 ${
                 currentSlide === 2 
                   ? 'border-white text-white bg-slate-900/30' 
@@ -2036,7 +2049,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setCurrentSlide(3)}
+              onClick={() => { setCurrentSlide(3); setMenuAbierto(false); }}
               className={`flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 border-2 ${
                 currentSlide === 3 
                   ? 'border-white text-white bg-slate-900/30' 
@@ -2055,7 +2068,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setCurrentSlide(4)}
+              onClick={() => { setCurrentSlide(4); setMenuAbierto(false); }}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 border-2 ${
                 currentSlide === 4 
                   ? 'border-white text-white bg-slate-900/30' 
@@ -2067,7 +2080,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setCurrentSlide(5)}
+              onClick={() => { setCurrentSlide(5); setMenuAbierto(false); }}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-sm font-bold transition-all duration-200 border-2 ${
                 currentSlide === 5 
                   ? 'border-white text-white bg-slate-900/30' 
@@ -2101,7 +2114,15 @@ export default function App() {
         
         {/* Top Header Bar */}
         <header className="flex justify-between items-center border-b border-[#162035] bg-[#0c1220]/40 px-6 py-4 backdrop-blur-md shrink-0">
-          <h2 className="text-xl font-extrabold tracking-tight text-white font-outfit">
+          {/* Abre la barra lateral en el telefono. En pantallas grandes no aparece. */}
+          <button
+            className="lg:hidden mr-3 p-2 rounded-lg border border-[#162035] text-slate-200 shrink-0"
+            onClick={() => setMenuAbierto(true)}
+            aria-label="Abrir menú"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <h2 className="text-base sm:text-xl font-extrabold tracking-tight text-white font-outfit truncate min-w-0 flex-1">
             {currentSlide === 0 && t('title_dashboard', 'Dashboard Principal')}
             {currentSlide === 1 && t('title_routes', 'Rutas y Logística')}
             {currentSlide === 2 && t('title_leads', 'Gestión de Leads')}
@@ -2109,10 +2130,10 @@ export default function App() {
             {currentSlide === 4 && t('title_ai_control', 'Centro de Control de IA')}
             {currentSlide === 5 && t('title_finances', 'Finanzas y Auditoría')}
           </h2>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button 
               onClick={() => setShowGuideModal(true)}
-              className="flex items-center gap-2 bg-slate-900/80 border border-blue-500/40 hover:bg-blue-500/20 hover:border-blue-400 transition px-3.5 py-1.5 rounded-xl text-xs font-bold text-blue-300 active:scale-95 glow-blue"
+              className="hidden md:flex items-center gap-2 bg-slate-900/80 border border-blue-500/40 hover:bg-blue-500/20 hover:border-blue-400 transition px-3.5 py-1.5 rounded-xl text-xs font-bold text-blue-300 active:scale-95 glow-blue"
               title={language === 'es' ? "Guía rápida del sistema" : "System Quick Guide"}
             >
               <Info className="h-4 w-4" />
@@ -2128,7 +2149,7 @@ export default function App() {
             </button>
             <button 
               onClick={exportToCSV}
-              className="flex items-center gap-2 bg-slate-900/80 border border-cyan-500/40 hover:bg-cyan-500/20 hover:border-cyan-400 transition px-3.5 py-1.5 rounded-xl text-xs font-bold text-cyan-300 active:scale-95 glow-cyan"
+              className="hidden md:flex items-center gap-2 bg-slate-900/80 border border-cyan-500/40 hover:bg-cyan-500/20 hover:border-cyan-400 transition px-3.5 py-1.5 rounded-xl text-xs font-bold text-cyan-300 active:scale-95 glow-cyan"
               title={language === 'es' ? "Descargar archivo CSV directamente" : "Download CSV file directly"}
             >
               {t('btn_export_csv', 'Exportar CSV')}
@@ -2138,7 +2159,7 @@ export default function App() {
                 setShowEmailModal(true);
                 setEmailStatus({ type: null, message: '' });
               }}
-              className="flex items-center gap-2 btn-premium-emerald transition px-4 py-1.5 rounded-xl text-xs font-bold text-white active:scale-95 shadow-lg"
+              className="hidden md:flex items-center gap-2 btn-premium-emerald transition px-4 py-1.5 rounded-xl text-xs font-bold text-white active:scale-95 shadow-lg"
             >
               <Mail className="h-4 w-4" />
               {t('btn_send_accountant', 'Enviar a Contador')}
@@ -3675,7 +3696,9 @@ export default function App() {
 
               {/* HTML/CSS Bar Chart comparison */}
 
-              <div className="glass-panel p-6 flex flex-col gap-4">
+              {/* Ocupa el ancho completo: dentro de la grilla de dos columnas la tabla
+                  quedaba aplastada y el texto se leia letra por letra. */}
+              <div className="glass-panel p-6 flex flex-col gap-4" style={{ gridColumn: '1 / -1' }}>
                 <h3 className="text-white font-semibold flex items-center gap-2">
                   <DollarSign className="h-5 w-5 text-emerald-400" />
                   Detalle de ingresos por servicio
