@@ -959,6 +959,10 @@ export default function App() {
   const mapaRef = useRef<any>(null);
   const marcadorRef = useRef<any>(null);
   const contenedorMapaRef = useRef<HTMLDivElement | null>(null);
+  /** Mapa interactivo de la ruta. Antes era un iframe de OpenStreetMap: se veía, pero no se
+   *  podía centrar en nada ni dibujar el recorrido. */
+  const mapaRutaRef = useRef<any>(null);
+  const contenedorRutaRef = useRef<HTMLDivElement | null>(null);
   const [cupoDetalle, setCupoDetalle] = useState<AgendaSlot | null>(null);
   /**
    * Cierre de servicio. Al marcar "Instalado" ya no basta con cambiar el estado: el técnico
@@ -1910,6 +1914,87 @@ export default function App() {
     setMapaAbierto(false);
   };
 
+  /**
+   * La visita más próxima de la agenda: la primera que todavía no ocurre.
+   *
+   * Es el punto que importa cuando uno abre el panel — a dónde hay que ir ahora —, así que el
+   * mapa se centra ahí en vez de mostrar toda la ciudad. Si ya pasaron todas, se usa la última
+   * para no dejar el mapa sin referencia.
+   */
+  const proximaVisita = (): Lead | null => {
+    const conGps = optimizedRoute.filter(p => p.latitude && p.longitude && p.appointment_iso);
+    if (conGps.length === 0) return null;
+    const ahora = new Date();
+    const futuras = conGps
+      .filter(p => new Date(String(p.appointment_iso) + ':00') >= ahora)
+      .sort((a, b) => String(a.appointment_iso).localeCompare(String(b.appointment_iso)));
+    if (futuras.length) return futuras[0];
+    return [...conGps].sort((a, b) => String(b.appointment_iso).localeCompare(String(a.appointment_iso)))[0];
+  };
+
+  /** Dibuja la ruta completa y centra en la próxima visita. */
+  useEffect(() => {
+    if (currentSlide !== 1 || !contenedorRutaRef.current) return;
+    const conGps = optimizedRoute.filter(p => p.latitude && p.longitude);
+    if (conGps.length === 0) return;
+
+    let cancelado = false;
+    (async () => {
+      const L = (await import('leaflet')).default;
+      if (cancelado || !contenedorRutaRef.current) return;
+
+      if (mapaRutaRef.current) { mapaRutaRef.current.remove(); mapaRutaRef.current = null; }
+
+      const mapa = L.map(contenedorRutaRef.current, { scrollWheelZoom: false });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap', maxZoom: 19
+      }).addTo(mapa);
+
+      const proxima = proximaVisita();
+      const puntos: [number, number][] = [];
+
+      conGps.forEach((p, i) => {
+        const lat = Number(p.latitude), lon = Number(p.longitude);
+        puntos.push([lat, lon]);
+        const esProxima = proxima && p.phone === proxima.phone;
+        // La próxima va en ámbar y más grande: es la que uno busca al abrir el panel.
+        const color = esProxima ? '#fbbf24' : '#22d3ee';
+        const tam = esProxima ? 34 : 26;
+        const icono = L.divIcon({
+          className: '',
+          html: `<div style="width:${tam}px;height:${tam}px;border-radius:50%;background:${color};
+                 border:3px solid #fff;box-shadow:0 0 ${esProxima ? 16 : 8}px ${color};
+                 display:flex;align-items:center;justify-content:center;
+                 font:700 ${esProxima ? 14 : 11}px sans-serif;color:#0b1220">${i + 1}</div>`,
+          iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2]
+        });
+        L.marker([lat, lon], { icon: icono }).addTo(mapa).bindPopup(
+          `<b>${p.client_name || '+' + p.phone}</b><br>${p.address || ''}` +
+          (p.appointment_time ? `<br>🗓️ ${p.appointment_time}` : '') +
+          (esProxima ? '<br><b>⟵ próxima visita</b>' : '')
+        );
+      });
+
+      if (puntos.length > 1) {
+        L.polyline(puntos, { color: '#22d3ee', weight: 3, opacity: 0.5, dashArray: '6 8' }).addTo(mapa);
+      }
+
+      if (proxima) {
+        mapa.setView([Number(proxima.latitude), Number(proxima.longitude)], 15);
+      } else {
+        mapa.fitBounds(L.latLngBounds(puntos).pad(0.2));
+      }
+
+      mapaRutaRef.current = mapa;
+      setTimeout(() => mapa.invalidateSize(), 200);
+    })();
+
+    return () => {
+      cancelado = true;
+      if (mapaRutaRef.current) { mapaRutaRef.current.remove(); mapaRutaRef.current = null; }
+    };
+  }, [currentSlide, optimizedRoute]);
+
   const soltarReserva = async (cupo: AgendaSlot) => {
     setGuardandoCita(true);
     try {
@@ -2637,39 +2722,31 @@ export default function App() {
                     your request". Ponerle la clave aquí la dejaría visible en el código
                     público de la página, así que se usa OpenStreetMap, que no pide clave. */}
                 <div className="mapa-clientes">
-                  {(() => {
-                    const conGps = optimizedRoute.filter(p => p.latitude && p.longitude);
-
-                    if (conGps.length === 0) {
-                      return (
-                        <div className="mapa-vacio">
-                          <MapPin className="h-6 w-6" />
-                          <span>{t('lbl_no_geolocations', 'No hay ubicaciones registradas todavía.')}</span>
-                        </div>
-                      );
-                    }
-
-                    const lats = conGps.map(p => Number(p.latitude));
-                    const lons = conGps.map(p => Number(p.longitude));
-                    const margen = 0.02;
-                    const bbox = [
-                      Math.min(...lons) - margen,
-                      Math.min(...lats) - margen,
-                      Math.max(...lons) + margen,
-                      Math.max(...lats) + margen
-                    ].join(',');
-
-                    return (
-                      <iframe
-                        title={t('lbl_dynamic_map', 'Mapa Dinámico de Clientes')}
-                        width="100%"
-                        height="100%"
-                        style={{ border: 0, minHeight: 240 }}
-                        loading="lazy"
-                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lats[0]},${lons[0]}`}
+                  {optimizedRoute.filter(p => p.latitude && p.longitude).length === 0 ? (
+                    <div className="mapa-vacio">
+                      <MapPin className="h-6 w-6" />
+                      <span>{t('lbl_no_geolocations', 'No hay ubicaciones registradas todavía.')}</span>
+                    </div>
+                  ) : (
+                    <>
+                      {(() => {
+                        const p = proximaVisita();
+                        if (!p) return null;
+                        return (
+                          <div className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/25 rounded-lg p-2.5 mb-2">
+                            <span className="font-bold">🟡 Próxima visita:</span>{' '}
+                            {p.client_name || `+${p.phone}`}
+                            {p.appointment_time ? ` · ${p.appointment_time}` : ''}
+                            {p.address ? ` · ${p.address}` : ''}
+                          </div>
+                        );
+                      })()}
+                      <div
+                        ref={contenedorRutaRef}
+                        style={{ width: '100%', minHeight: 260, flex: 1, borderRadius: 12, overflow: 'hidden' }}
                       />
-                    );
-                  })()}
+                    </>
+                  )}
                 </div>
               </div>
             </div>
