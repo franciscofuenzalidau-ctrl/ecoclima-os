@@ -462,6 +462,8 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     kpi_total_costs_desc: "Costos técnicos declarados",
     kpi_mkt_spend: "Inversión en Marketing (USD)",
     kpi_mkt_spend_desc: "Costo de adquisición de clientes",
+    kpi_profit: "Utilidad (USD)",
+    kpi_profit_desc: "Ingresos menos costos",
     kpi_net_margin: "Margen Neto (%)",
     kpi_net_margin_desc: "Rentabilidad acumulada",
     btn_save_changes: "Guardar Cambios",
@@ -763,6 +765,8 @@ const translations: Record<'es' | 'en', Record<string, string>> = {
     kpi_total_costs_desc: "Declared technical costs",
     kpi_mkt_spend: "Marketing Investment (USD)",
     kpi_mkt_spend_desc: "Customer acquisition cost",
+    kpi_profit: "Profit (USD)",
+    kpi_profit_desc: "Revenue minus costs",
     kpi_net_margin: "Net Margin (%)",
     kpi_net_margin_desc: "Accumulated profitability",
     btn_save_changes: "Save Changes",
@@ -3340,7 +3344,7 @@ export default function App() {
             </div>
 
             {/* AI metrics cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
               <div className="glass-panel p-4 card-top-blue flex flex-col justify-between gap-2 relative overflow-hidden shadow-[0_4px_12px_rgba(59,130,246,0.08)]">
                 <div className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{t('kpi_ai_calls', 'Llamadas totales (Gemini)')}</div>
                 <div className="text-2xl font-extrabold text-white">{aiMetrics.totalCalls}</div>
@@ -3515,6 +3519,25 @@ export default function App() {
                 <div className="text-[10px] text-amber-300 font-medium">{t('kpi_mkt_spend_desc', 'Costo de adquisición de clientes')}</div>
               </div>
 
+              <div className="glass-panel p-4 card-top-cyan flex flex-col justify-between gap-2 relative overflow-hidden shadow-[0_4px_12px_rgba(6,182,212,0.08)]">
+                <div className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{t('kpi_profit', 'Utilidad (USD)')}</div>
+                {(() => {
+                  // Lo que de verdad queda: ingresos menos TODO el costo, marketing incluido.
+                  // Antes solo estaba el margen en %, que no dice cuánta plata quedó.
+                  const rev = financials.reduce((acc, c) => acc + c.client_revenue + c.related_revenue, 0);
+                  const cost = financials.reduce((acc, c) => acc + c.operating_costs + c.marketing_spend, 0);
+                  const utilidad = rev - cost;
+                  return (
+                    <div
+                      className="text-2xl font-extrabold"
+                      style={{ color: utilidad < 0 ? '#f87171' : '#ffffff' }}
+                    >
+                      {utilidad < 0 ? '-' : ''}${Math.abs(utilidad).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                  );
+                })()}
+                <div className="text-[10px] text-cyan-300 font-medium">{t('kpi_profit_desc', 'Ingresos menos costos')}</div>
+              </div>
               <div className="glass-panel p-4 card-top-emerald flex flex-col justify-between gap-2 relative overflow-hidden shadow-[0_4px_12px_rgba(16,185,129,0.08)]">
                 <div className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">{t('kpi_net_margin', 'Margen Neto (%)')}</div>
                 <div className="text-2xl font-extrabold text-white">
