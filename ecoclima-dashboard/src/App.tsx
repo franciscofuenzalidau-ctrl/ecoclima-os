@@ -886,6 +886,15 @@ export default function App() {
     cost_description?: string;
   }
   const [financials, setFinancials] = useState<FinancialItem[]>([]);
+  /**
+   * Detalle de ingresos: cada servicio cobrado, con su fecha. El total del panel no se puede
+   * auditar solo; esto permite ver de qué trabajos sale y detectar un cierre mal cargado.
+   */
+  const [detalleIngresos, setDetalleIngresos] = useState<Array<{
+    fecha: string | null; mes: string | null; cliente: string | null; phone: string;
+    service_type: string | null; unidades: number | null; tamano: string | null;
+    monto_clp: number | null; monto_usd: number;
+  }>>([]);
 
   // Configuración de Tarifas
   interface PricingConfig {
@@ -1253,6 +1262,15 @@ export default function App() {
     }
   };
 
+  const fetchDetalleIngresos = async () => {
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/finances/ingresos`);
+      if (r.ok) setDetalleIngresos(await r.json());
+    } catch (error) {
+      console.error('Error al cargar el detalle de ingresos:', error);
+    }
+  };
+
   const handleFinancialFieldChange = (index: number, field: keyof FinancialItem, value: string) => {
     setFinancials(prev => {
       const copy = [...prev];
@@ -1277,6 +1295,7 @@ export default function App() {
       if (res.ok) {
         alert('Métricas financieras actualizadas con éxito.');
         fetchFinancials();
+        fetchDetalleIngresos();
       } else {
         alert('Error al guardar métricas financieras.');
       }
@@ -1431,6 +1450,7 @@ export default function App() {
     fetchRouteOptimization();
     fetchAICenterData();
     fetchFinancials();
+    fetchDetalleIngresos();
     fetchPricingConfig();
     fetchAgenda();
 
@@ -3654,6 +3674,68 @@ export default function App() {
               </div>
 
               {/* HTML/CSS Bar Chart comparison */}
+
+              <div className="glass-panel p-6 flex flex-col gap-4">
+                <h3 className="text-white font-semibold flex items-center gap-2">
+                  <DollarSign className="h-5 w-5 text-emerald-400" />
+                  Detalle de ingresos por servicio
+                </h3>
+
+                {detalleIngresos.length === 0 ? (
+                  <div className="text-[12px] text-slate-400">
+                    Todavía no hay servicios cerrados con monto. Aparecerán aquí al marcar un cliente
+                    como "Instalado" e indicar cuántas unidades se atendieron.
+                  </div>
+                ) : (
+                  <div className="financial-table-container">
+                    <table className="w-full text-left text-[12px]">
+                      <thead>
+                        <tr className="text-slate-400 text-[10px] uppercase tracking-wider">
+                          <th className="p-3 rounded-l-lg">Fecha del servicio</th>
+                          <th className="p-3">Cliente</th>
+                          <th className="p-3">Servicio</th>
+                          <th className="p-3">Cobrado (CLP)</th>
+                          <th className="p-3 rounded-r-lg">Ingreso (USD)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detalleIngresos.map((d) => (
+                          <tr key={d.phone + (d.fecha || '')} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-all">
+                            <td className="py-3 px-3 text-slate-200 whitespace-nowrap">
+                              {d.fecha ? new Date(d.fecha).toLocaleDateString('es-CL') : 'sin fecha'}
+                            </td>
+                            <td className="py-3 px-3 text-white font-semibold">
+                              {d.cliente || `+${d.phone}`}
+                            </td>
+                            <td className="py-3 px-3 text-slate-300">
+                              {d.service_type === 'installation' ? 'Instalación' : 'Mantención'}
+                              {d.unidades ? ` · ${d.unidades} u.` : ''}
+                              {d.tamano ? ` · ${d.tamano}` : ''}
+                            </td>
+                            <td className="py-3 px-3 text-slate-200">
+                              {d.monto_clp ? `$${d.monto_clp.toLocaleString('es-CL')}` : '—'}
+                            </td>
+                            <td className="py-3 px-3 text-emerald-300 font-bold">
+                              ${d.monto_usd.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="font-bold text-white">
+                          <td className="py-3 px-3" colSpan={4}>Total</td>
+                          <td className="py-3 px-3 text-emerald-300">
+                            ${detalleIngresos.reduce((a, d) => a + d.monto_usd, 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="text-[10px] text-slate-400">
+                  💡 Los montos en pesos son con IVA, que es lo que paga el cliente. El ingreso en
+                  dólares es neto de IVA, que es lo que corresponde declarar.
+                </div>
+              </div>
               <div className="glass-panel p-6 financial-col-chart flex flex-col gap-4 glow-purple text-left justify-between">
                 <div>
                   <h3 className="text-white font-semibold flex items-center gap-2">

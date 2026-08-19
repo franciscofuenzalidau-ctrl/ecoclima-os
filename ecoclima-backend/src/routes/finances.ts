@@ -131,6 +131,46 @@ async function finanzasCompletas(): Promise<any[]> {
   return [...meses.values()];
 }
 
+/**
+ * GET /api/finances/ingresos - Detalle servicio por servicio.
+ *
+ * El total del panel no se puede auditar solo: si dice USD 133,33 no se sabe de qué trabajos
+ * salió. Esto devuelve cada servicio cobrado con su fecha, cliente y monto, para poder revisar
+ * de dónde viene cada peso y detectar un cierre mal cargado.
+ */
+router.get('/ingresos', async (req: Request, res: Response) => {
+  if (!db) return res.status(200).json([]);
+  try {
+    const snap = await db.collection('leads').get();
+    const filas: any[] = [];
+
+    snap.forEach(doc => {
+      const l = doc.data() as any;
+      const usd = Number(l.service_amount_usd);
+      if (!Number.isFinite(usd) || usd <= 0) return;
+
+      const fecha = l.completed_at || l.installation_date || l.last_maintenance_date || null;
+      filas.push({
+        fecha,
+        mes: fecha ? etiquetaDeMes(String(fecha)) : null,
+        cliente: l.client_name || null,
+        phone: doc.id,
+        service_type: l.service_type || null,
+        unidades: l.service_units ?? null,
+        tamano: l.equipment_size || null,
+        monto_clp: Number(l.service_amount_clp) || null,
+        monto_usd: usd
+      });
+    });
+
+    // Del más reciente al más antiguo: lo último cerrado es lo que uno viene a revisar.
+    filas.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+    return res.status(200).json(filas);
+  } catch (error: any) {
+    console.error('Error al listar el detalle de ingresos:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
 // GET /api/finances/tarifas - Precios vigentes, para que el panel muestre el monto calculado
 // sin tener que repetir la regla de precios en el código del dashboard.
 router.get('/tarifas', (req: Request, res: Response) => {
