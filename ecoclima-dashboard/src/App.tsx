@@ -161,6 +161,8 @@ interface AgendaSlot {
   motivoReserva: string | null;
   reservaCreadaPor?: 'panel' | 'bot' | null;
   reservaCreadaEl?: string | null;
+  /** Cita que ya paso y nadie cerro. Se queda en el calendario hasta marcarla. */
+  atrasado?: boolean;
   lead: {
     phone: string;
     client_name?: string | null;
@@ -2853,12 +2855,17 @@ export default function App() {
                               cupo.ocupado && cupo.lead ? (
                                 <div
                                   key={cupo.id}
-                                  className="agenda-cupo ocupado clickeable"
+                                  className={`agenda-cupo ocupado clickeable ${cupo.atrasado ? 'atrasado' : ''}`}
                                   onClick={() => setCupoDetalle(cupo)}
                                   title={t('tip_open_slot', 'Ver toda la información de esta visita')}
                                 >
                                   <div className="agenda-hora">
                                     <span>{cupo.time}</span>
+                                    {cupo.atrasado && (
+                                      <span className="agenda-atrasada" title="Esta visita ya paso y sigue sin cerrar">
+                                        ⚠ ATRASADA
+                                      </span>
+                                    )}
                                     <span className={`agenda-estado estado-${(cupo.lead.status || 'Pendiente').toLowerCase()}`}>
                                       {cupo.lead.status || 'Pendiente'}
                                     </span>

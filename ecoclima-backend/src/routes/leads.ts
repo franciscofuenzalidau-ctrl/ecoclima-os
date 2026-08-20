@@ -483,8 +483,45 @@ router.get('/agenda', async (req: Request, res: Response) => {
       };
     });
 
+    /**
+     * Citas que ya pasaron pero nadie cerro.
+     *
+     * cuposDelPeriodo solo genera horas de hoy en adelante, asi que una visita del martes
+     * desaparecia del calendario el miercoles aunque nadie la hubiera marcado. Se perdia de
+     * vista justamente lo que hay que cerrar: sin cierre no sale la encuesta al cliente ni se
+     * registra el ingreso.
+     *
+     * Ahora vuelven al calendario, marcadas como atrasadas, hasta que se marquen como
+     * "Instalado" o "Cancelado". Las canceladas ya quedaron fuera al armar porCupo.
+     */
+    const { date: hoyChile, time: horaChile } = ahoraEnChile();
+    const ahoraId = `${hoyChile}T${horaChile}`;
+    const idsGenerados = new Set(cupos.map(c => c.id));
+
+    const atrasadas = [...porCupo.entries()]
+      .filter(([id, lead]) => !idsGenerados.has(id) && id < ahoraId && lead.status !== 'Instalado')
+      .map(([id, lead]) => {
+        const [fecha, hora] = id.split('T');
+        const reserva = reservas.get(id);
+        return {
+          ...construirCupo(fecha, hora),
+          ocupado: true,
+          esExtra: extras.has(id),
+          reservado: !!reserva,
+          motivoReserva: reserva?.motivo || null,
+          reservaCreadaPor: reserva?.creadoPor || null,
+          reservaCreadaEl: reserva?.creadoEl || null,
+          // Lo que distingue una cita atrasada de una futura en el calendario.
+          atrasado: true,
+          lead
+        };
+      });
+
+    // Van primero y de la mas antigua a la mas nueva: lo pendiente se mira antes que lo que viene.
+    atrasadas.sort((a, b) => a.id.localeCompare(b.id));
+    const cuposConAtrasadas = [...atrasadas, ...cupos];
     // Citas que quedaron fuera del período mostrado o en horarios que ya no existen.
-    const idsDelPeriodo = new Set(cupos.map(c => c.id));
+    const idsDelPeriodo = new Set(cuposConAtrasadas.map(c => c.id));
     const fueraDeAgenda = [...porCupo.entries()]
       .filter(([id]) => !idsDelPeriodo.has(id))
       // Con el nombre del cliente, no solo el teléfono: así se puede buscar la ficha en el
@@ -500,7 +537,7 @@ router.get('/agenda', async (req: Request, res: Response) => {
     return res.status(200).json({
       hoy: ahoraEnChile().date,
       horarios: SLOT_TIMES,
-      cupos,
+      cupos: cuposConAtrasadas,
       fueraDeAgenda
     });
   } catch (error: any) {
