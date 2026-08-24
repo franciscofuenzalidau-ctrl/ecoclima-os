@@ -7,6 +7,7 @@ import aiControlRouter from './routes/aiControl';
 import financesRouter from './routes/finances';
 import { tal_vez_correr_campana_diaria } from './services/campanaPreventiva';
 import { tal_vez_avisar_visitas_proximas } from './services/recordatorioVisitas';
+import { tal_vez_enviar_planilla_mensual, hayCorreoConfigurado } from './services/planillaMensual';
 import { exigirClaveParaEscribir, claveEstaActiva } from './services/clavePanel';
 
 dotenv.config();
@@ -39,12 +40,20 @@ app.get('/health', (req, res) => {
     console.error('[RECORDATORIO] Error no controlado:', err)
   );
 
+  // Planilla del mes por correo, el ultimo dia habil. Se revisa cada 30 minutos.
+  tal_vez_enviar_planilla_mensual().catch(err =>
+    console.error('[PLANILLA] Error no controlado:', err)
+  );
+
   res.status(200).json({
     status: 'OK',
     timestamp: new Date(),
     startedAt: STARTED_AT,
     uptimeSeconds: Math.round(process.uptime()),
     campanaAutomatica: process.env.CAMPANA_AUTOMATICA === 'true',
+    // Sin credenciales SMTP la planilla mensual no se puede enviar: nodemailer caeria en
+    // una cuenta de prueba que no entrega nada. Se expone para poder verificarlo sin enviar.
+    correoConfigurado: hayCorreoConfigurado(),
     // El panel lo consulta para saber si debe pedir la clave antes de guardar.
     claveRequerida: claveEstaActiva()
   });
