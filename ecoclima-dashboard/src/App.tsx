@@ -895,6 +895,8 @@ export default function App() {
    * Detalle de ingresos: cada servicio cobrado, con su fecha. El total del panel no se puede
    * auditar solo; esto permite ver de qué trabajos sale y detectar un cierre mal cargado.
    */
+  /** Mes que se descarga como planilla. Parte en el mes en curso, que es el caso normal. */
+  const [mesPlanilla, setMesPlanilla] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [detalleIngresos, setDetalleIngresos] = useState<Array<{
     fecha: string | null; mes: string | null; cliente: string | null; phone: string;
     service_type: string | null; unidades: number | null; tamano: string | null;
@@ -3936,6 +3938,26 @@ export default function App() {
                   <DollarSign className="h-5 w-5 text-emerald-400" />
                   Detalle de ingresos por servicio
                 </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <input
+                      type="month"
+                      className="tech-input-field"
+                      style={{ width: 'auto' }}
+                      value={mesPlanilla}
+                      onChange={(e) => setMesPlanilla(e.target.value)}
+                      title="Mes de los servicios a descargar"
+                    />
+                    <button
+                      className="agenda-btn"
+                      onClick={() => {
+                        // Se abre en una pestaña nueva: el navegador descarga el archivo y el
+                        // panel se queda donde estaba.
+                        window.open(`${BACKEND_URL}/api/finances/servicios.xlsx?mes=${mesPlanilla}`, '_blank');
+                      }}
+                    >
+                      📊 Descargar Excel del mes
+                    </button>
+                  </div>
 
                 {detalleIngresos.length === 0 ? (
                   <div className="text-[12px] text-slate-400">

@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { db } from '../services/firebase';
+import ExcelJS from 'exceljs';
+import { ahoraEnChile } from '../services/agenda';
 import { etiquetaDeMes, precioMantencion, precioInstalacion, parametrosFinancieros } from '../services/tarifas';
 
 /**
@@ -168,6 +170,109 @@ router.get('/ingresos', async (req: Request, res: Response) => {
     return res.status(200).json(filas);
   } catch (error: any) {
     console.error('Error al listar el detalle de ingresos:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+/**
+ * GET /api/finances/servicios.xlsx?mes=YYYY-MM - Planilla de los servicios cerrados del mes.
+ *
+ * Se genera un .xlsx de verdad y no un CSV a proposito: Excel en configuracion regional de Chile
+ * espera punto y coma como separador, asi que un CSV con comas abre todo apretado en una sola
+ * columna. Con xlsx eso no pasa, y ademas los montos quedan como numeros con formato, no como
+ * texto que hay que volver a convertir para sumar.
+ *
+ * Sin el parametro mes se usa el mes en curso.
+ */
+router.get('/servicios.xlsx', async (req: Request, res: Response) => {
+  if (!db) return res.status(500).json({ error: 'Firestore no está inicializado.' });
+
+  try {
+    const hoy = ahoraEnChile().date;               // YYYY-MM-DD en hora de Chile
+    const mes = String(req.query.mes || hoy.slice(0, 7));
+    if (!/^\d{4}-\d{2}$/.test(mes)) {
+      return res.status(400).json({ error: 'El mes debe venir como YYYY-MM.' });
+    }
+
+    const snapshot = await db.collection('leads').get();
+    const filas: any[] = [];
+
+    snapshot.forEach(doc => {
+      const l = doc.data() as any;
+      if (l.status !== 'Instalado') return;
+
+      const fecha = l.completed_at || l.installation_date || l.last_maintenance_date;
+      if (!fecha || String(fecha).slice(0, 7) !== mes) return;
+
+      filas.push({
+        fecha: String(fecha).slice(0, 10),
+        cliente: l.client_name || '',
+        telefono: `+${doc.id}`,
+        servicio: l.service_type === 'installation' ? 'Instalación' : 'Mantención',
+        unidades: l.service_units ?? null,
+        tamano: l.equipment_size || '',
+        direccion: l.address || '',
+        referencia: l.address_reference || '',
+        tecnico: l.technician || '',
+        cobradoCLP: Number(l.service_amount_clp) || null,
+        ingresoUSD: Number(l.service_amount_usd) || null,
+        nota: l.satisfaction_rating ?? null,
+        comentario: l.satisfaction_comment || ''
+      });
+    });
+
+    filas.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+    const libro = new ExcelJS.Workbook();
+    libro.creator = 'Furtz Clima OS';
+    libro.created = new Date();
+    const hoja = libro.addWorksheet(`Servicios ${mes}`);
+
+    hoja.columns = [
+      { header: 'Fecha',            key: 'fecha',      width: 12 },
+      { header: 'Cliente',          key: 'cliente',    width: 32 },
+      { header: 'Teléfono',         key: 'telefono',   width: 15 },
+      { header: 'Servicio',         key: 'servicio',   width: 13 },
+      { header: 'Unidades',         key: 'unidades',   width: 10 },
+      { header: 'Tamaño',           key: 'tamano',     width: 10 },
+      { header: 'Dirección',        key: 'direccion',  width: 34 },
+      { header: 'Referencia',       key: 'referencia', width: 26 },
+      { header: 'Técnico',          key: 'tecnico',    width: 14 },
+      { header: 'Cobrado (CLP)',    key: 'cobradoCLP', width: 15 },
+      { header: 'Ingreso (USD)',    key: 'ingresoUSD', width: 14 },
+      { header: 'Nota (1-7)',       key: 'nota',       width: 11 },
+      { header: 'Comentario',       key: 'comentario', width: 44 }
+    ];
+
+    hoja.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hoja.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } };
+    hoja.getRow(1).alignment = { vertical: 'middle' };
+    hoja.views = [{ state: 'frozen', ySplit: 1 }];
+
+    filas.forEach(f => hoja.addRow(f));
+
+    // Los montos como numero con formato: asi se pueden sumar en la planilla sin convertir nada.
+    hoja.getColumn('cobradoCLP').numFmt = '#,##0';
+    hoja.getColumn('ingresoUSD').numFmt = '#,##0.00';
+
+    if (filas.length > 0) {
+      const total = hoja.addRow({
+        cliente: 'TOTAL',
+        cobradoCLP: filas.reduce((a, f) => a + (f.cobradoCLP || 0), 0),
+        ingresoUSD: Math.round(filas.reduce((a, f) => a + (f.ingresoUSD || 0), 0) * 100) / 100
+      });
+      total.font = { bold: true };
+      total.getCell('cobradoCLP').numFmt = '#,##0';
+      total.getCell('ingresoUSD').numFmt = '#,##0.00';
+    } else {
+      hoja.addRow({ cliente: `Sin servicios cerrados en ${mes}.` });
+    }
+
+    const buffer = await libro.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=servicios_furtz_${mes}.xlsx`);
+    return res.status(200).send(Buffer.from(buffer));
+  } catch (error: any) {
+    console.error('[EXCEL] Error al generar la planilla:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });
