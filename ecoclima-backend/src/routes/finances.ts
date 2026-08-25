@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from '../services/firebase';
 import { ahoraEnChile } from '../services/agenda';
-import { serviciosDelMes, planillaDeServicios } from '../services/planillaMensual';
+import { serviciosDelMes, planillaDeServicios, reservasDelMes, cuposConFichaDelMes } from '../services/planillaMensual';
 import { etiquetaDeMes, precioMantencion, precioInstalacion, parametrosFinancieros } from '../services/tarifas';
 
 /**
@@ -190,7 +190,9 @@ router.get('/servicios.xlsx', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'El mes debe venir como YYYY-MM.' });
     }
     const filas = await serviciosDelMes(mes);
-    const archivo = await planillaDeServicios(mes, filas);
+    const conFicha = await cuposConFichaDelMes(mes);
+    const reservas = await reservasDelMes(mes, conFicha);
+    const archivo = await planillaDeServicios(mes, filas, reservas);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=servicios_furtz_${mes}.xlsx`);
     return res.status(200).send(archivo);

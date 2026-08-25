@@ -9,7 +9,7 @@
  */
 import ExcelJS from 'exceljs';
 import { db } from './firebase';
-import { ahoraEnChile } from './agenda';
+import { ahoraEnChile, leerConfigAgenda } from './agenda';
 import nodemailer from 'nodemailer';
 
 export interface FilaServicio {
@@ -53,8 +53,58 @@ export async function serviciosDelMes(mes: string): Promise<FilaServicio[]> {
   return filas;
 }
 
+
+export interface FilaReserva {
+  fecha: string; hora: string; motivo: string; creadoPor: string; creadoEl: string;
+}
+
+/**
+ * Las reservas del calendario de un mes: cupos que Pilar aparta a mano con un motivo
+ * ("MAQTAINER PUERTO MONTT", "CASA BILLY AA 18K").
+ *
+ * Son trabajos de verdad, pero no tienen ficha de cliente, asi que no aparecian en ninguna parte
+ * de la planilla y el mes quedaba incompleto. Se listan aparte porque no tienen las mismas
+ * columnas que un servicio cerrado: no hay cliente registrado ni monto cobrado.
+ *
+ * Si el cupo ademas tiene una ficha agendada encima, se omite: ese trabajo ya va en la hoja de
+ * servicios y contarlo dos veces seria peor que no listarlo.
+ */
+export async function reservasDelMes(mes: string, idsConFicha: Set<string>): Promise<FilaReserva[]> {
+  const config = await leerConfigAgenda();
+
+  return (config.reservas || [])
+    .filter(r => String(r.id).slice(0, 7) === mes && !idsConFicha.has(r.id))
+    .map(r => {
+      const [fecha, hora] = String(r.id).split('T');
+      return {
+        fecha,
+        hora: hora || '',
+        motivo: r.motivo || '',
+        creadoPor: r.creadoPor === 'bot' ? 'Bot' : 'Panel',
+        creadoEl: r.creadoEl ? String(r.creadoEl).slice(0, 10) : ''
+      };
+    })
+    .sort((a, b) => (a.fecha + a.hora).localeCompare(b.fecha + b.hora));
+}
+
+/** Los cupos del mes que ya tienen ficha de cliente, para no listarlos dos veces. */
+export async function cuposConFichaDelMes(mes: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (!db) return ids;
+  const snapshot = await db.collection('leads').get();
+  snapshot.forEach(doc => {
+    const iso = (doc.data() as any).appointment_iso;
+    if (iso && String(iso).slice(0, 7) === mes) ids.add(String(iso));
+  });
+  return ids;
+}
+
 /** El archivo .xlsx listo para descargar o adjuntar a un correo. */
-export async function planillaDeServicios(mes: string, filas: FilaServicio[]): Promise<Buffer> {
+export async function planillaDeServicios(
+  mes: string,
+  filas: FilaServicio[],
+  reservas: FilaReserva[] = []
+): Promise<Buffer> {
   const libro = new ExcelJS.Workbook();
   libro.creator = 'Furtz Clima OS';
   libro.created = new Date();
@@ -97,6 +147,33 @@ export async function planillaDeServicios(mes: string, filas: FilaServicio[]): P
     total.getCell('ingresoUSD').numFmt = '#,##0.00';
   } else {
     hoja.addRow({ cliente: `Sin servicios cerrados en ${mes}.` });
+  }
+
+
+  // Segunda hoja: los cupos que Pilar aparto a mano. Son trabajos reales sin ficha de cliente,
+  // asi que el mes quedaba incompleto sin ellos. Van aparte porque no tienen monto ni cliente
+  // registrado, y mezclarlos con los servicios cerrados daria un total enganoso.
+  const hojaReservas = libro.addWorksheet('Reservas del calendario');
+  hojaReservas.columns = [
+    { header: 'Fecha',         key: 'fecha',      width: 12 },
+    { header: 'Hora',          key: 'hora',       width: 8 },
+    { header: 'Motivo',        key: 'motivo',     width: 42 },
+    { header: 'Reservado por', key: 'creadoPor',  width: 14 },
+    { header: 'Reservado el',  key: 'creadoEl',   width: 14 }
+  ];
+  hojaReservas.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  hojaReservas.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6D28D9' } };
+  hojaReservas.views = [{ state: 'frozen', ySplit: 1 }];
+
+  reservas.forEach(r => hojaReservas.addRow(r));
+
+  if (reservas.length > 0) {
+    const nota = hojaReservas.addRow({
+      motivo: `${reservas.length} cupo(s) apartados en el calendario, sin ficha de cliente ni monto registrado.`
+    });
+    nota.font = { italic: true, color: { argb: 'FF64748B' } };
+  } else {
+    hojaReservas.addRow({ motivo: `Sin reservas de calendario en ${mes}.` });
   }
 
   return Buffer.from(await libro.xlsx.writeBuffer());
@@ -178,7 +255,9 @@ export async function tal_vez_enviar_planilla_mensual(): Promise<void> {
     }
 
     const filas = await serviciosDelMes(mes);
-    const archivo = await planillaDeServicios(mes, filas);
+    const conFicha = await cuposConFichaDelMes(mes);
+    const reservas = await reservasDelMes(mes, conFicha);
+    const archivo = await planillaDeServicios(mes, filas, reservas);
     const totalCLP = filas.reduce((a, f) => a + (f.cobradoCLP || 0), 0);
 
     const transporte = nodemailer.createTransport({
