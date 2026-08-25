@@ -73,7 +73,9 @@ export async function reservasDelMes(mes: string, idsConFicha: Set<string>): Pro
   const config = await leerConfigAgenda();
 
   return (config.reservas || [])
-    .filter(r => String(r.id).slice(0, 7) === mes && !idsConFicha.has(r.id))
+    // Se exige motivo escrito: un cupo bloqueado sin descripcion no es evidencia de
+    // ningun trabajo, solo una hora tapada.
+    .filter(r => String(r.id).slice(0, 7) === mes && !idsConFicha.has(r.id) && String(r.motivo || '').trim() !== '')
     .map(r => {
       const [fecha, hora] = String(r.id).split('T');
       return {
