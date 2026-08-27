@@ -158,7 +158,9 @@ router.post('/', async (req: Request, res: Response) => {
     area_m2: service_type === 'installation' && area_m2 ? parseInt(area_m2, 10) : null,
     calculated_btu,
     status: status || 'Pendiente',
-    technician: technician || '',
+    // Sin tecnico la ficha queda huerfana y hay que completarla a mano. Por defecto va
+    // el tecnico de siempre; quien la registra puede cambiarlo desde la propia ficha.
+    technician: technician || TECNICO_POR_DEFECTO,
     notes: finalNotes || null,
     last_maintenance_info: last_maintenance_info || null,
     is_working_correctly: is_working_correctly !== undefined ? is_working_correctly : null,
@@ -774,10 +776,24 @@ router.put('/:phone/appointment', async (req: Request, res: Response) => {
       return res.status(409).json({ error: `Ese cupo ya lo tiene +${chocaCon.phone}.` });
     }
 
+    // Toda cita necesita tecnico: es quien recibe el recordatorio antes de salir. Agendar
+    // desde el panel no lo asignaba, asi que quedaban fichas sin tecnico para completar
+    // a mano. Solo se pone si no hay uno: si ya eligieron a alguien, no se le pisa.
+    let tecnicoAsignado: string | undefined;
+    try {
+      if (db) {
+        const actual = await db.collection('leads').doc(cleanPhone).get();
+        if (!String(actual.data()?.technician || '').trim()) tecnicoAsignado = TECNICO_POR_DEFECTO;
+      }
+    } catch {
+      tecnicoAsignado = TECNICO_POR_DEFECTO;
+    }
+
     const cupo = construirCupo(fecha, hora);
     // Queda marcado que la hora la puso una persona desde el panel, no el agente.
     // Así se puede distinguir después cuántas visitas cerró la IA por sí sola.
     update = {
+      ...(tecnicoAsignado ? { technician: tecnicoAsignado } : {}),
       appointment_iso: cupo.id,
       appointment_time: cupo.label,
       booked_by: 'panel',
