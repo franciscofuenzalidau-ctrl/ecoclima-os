@@ -123,10 +123,18 @@ export async function tal_vez_avisar_visitas_proximas(): Promise<void> {
         texto,
         plantilla: {
           nombre: 'aviso_visita_tecnico',
-          variables: [nombreTecnico, `+${lead.phone}`, servicio, lead.address || 'No registrada', lead.appointment_time || hora]
-        },
-        // El texto lleva la ficha completa; la plantilla solo cinco datos sueltos.
-        preferirTexto: true
+          // La plantilla no exige que el técnico le haya escrito al bot en las últimas 24 h;
+          // el texto libre sí, y como el técnico nunca le escribe, siempre lo rechazaba y el
+          // aviso se perdía en silencio (se marcaba enviado igual, porque Meta acepta el
+          // texto libre con 200 y recién falla después, sin avisar). Va la plantilla primero.
+          variables: [
+            nombreTecnico,
+            lead.client_name ? `${lead.client_name} (+${lead.phone})` : `+${lead.phone}`,
+            servicio,
+            lead.address_reference ? `${lead.address || 'No registrada'} — Ref: ${lead.address_reference}` : (lead.address || 'No registrada'),
+            lead.appointment_time || hora
+          ]
+        }
       });
 
       if (r.enviado) {
